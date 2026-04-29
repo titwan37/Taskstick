@@ -1,0 +1,2 @@
+# wsl ANSIBLE_CONFIG=./ansible.cfg ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini deploy.yml --private-key=~/ionos_sec_ed25519
+wsl ANSIBLE_CONFIG=./ansible.cfg ANSIBLE_CALLBACK_RESULT_FORMAT=yaml ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini deploy.yml --private-key=~/ionos_sec_ed25519
