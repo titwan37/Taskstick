@@ -1,26 +1,35 @@
 ---
-- name: Deploy Taskstick to IONOS (Co-existence Mode)
-  hosts: taskstick
+- name: Deploy Taskstick (Co-existence Mode)
+  hosts: webserver
+  become: yes
   vars:
+    # Matches taskstick_dir from deploy_master.yml
     app_dir: "/var/www/taskstick"
     node_version: "20.x"
-    app_port: 3034
 
   tasks:
-    - name: Update apt cache
-      become: yes
-      apt: update_cache=yes
+    # - name: Wait for apt lock
+    #   shell: |
+    #     while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+    #       echo "Waiting for apt lock..."
+    #       sleep 5
+    #     done
+    #   register: lock_wait
+    #   changed_when: false
 
-    - name: Install Node.js and PM2
-      become: yes
+    - name: Ensure Global Dependencies
       shell: |
-        curl -fsSL https://deb.nodesource.com/setup_{{ node_version }} | bash -
-        apt-get install -y nodejs rsync
-        npm install pm2 -g
+        if ! command -v node &> /dev/null; then
+          curl -fsSL https://deb.nodesource.com/setup_{{ node_version }} | bash -
+          apt-get install -y nodejs rsync
+        fi
+        if ! command -v pm2 &> /dev/null; then
+          npm install -g pm2 serve
+        fi
 
-    - name: Create dedicated app directory
-      become: yes
-      file: path={{ app_dir }} state=directory owner=root group=root mode='0755'
+    - name: Create app directory
+      file: path={{ app_dir }} state=directory owner=www-data group=www-data
+        mode='0755'
 
     - name: Sync project files
       synchronize:
@@ -29,55 +38,30 @@
         recursive: yes
         delete: yes
         rsync_opts:
-          - "--exclude=.next"
+          - "-c"
+          - "--no-perms"
+          - "--no-owner"
+          - "--no-group"
           - "--exclude=node_modules"
-          - "--exclude=ansible"
+          - "--exclude=dist"
           - "--exclude=.git"
+          - "--exclude=.angular"
+          - "--exclude=.vscode"
       delegate_to: localhost
       become: no
 
-    - name: Build Application
-      become: yes
+    - name: Build and Start Taskstick
       shell: |
         npm install --legacy-peer-deps
-        npm run build
-      args:
-        chdir: "{{ app_dir }}"
-
-    - name: Start App on Port {{ app_port }} via PM2
-      become: yes
-      shell: |
+        npm run build -- --base-href /taskstick/
         pm2 delete taskstick || true
-        PORT={{ app_port }} pm2 start npm --name "taskstick" -- start
+        pm2 start serve --name "taskstick" -- -s dist/Taskstick/browser -p 3034
+        pm2 save
+        # sudo nginx -t && sudo systemctl restart nginx
       args:
         chdir: "{{ app_dir }}"
 
-    - name: Create Unique Nginx Config
-      become: yes
-      copy:
-        dest: /etc/nginx/sites-available/taskstick
-        content: |
-          server {
-              listen 81; 
-              server_name 212.227.39.191;
-              location / {
-                  proxy_pass http://localhost:{{ app_port }};
-                  proxy_http_version 1.1;
-                  proxy_set_header Upgrade $http_upgrade;
-                  proxy_set_header Connection 'upgrade';
-                  proxy_set_header Host $host;
-              }
-          }
-
-    - name: Enable Site and Restart Nginx
-      become: yes
-      file:
-        src: /etc/nginx/sites-available/taskstick
-        dest: /etc/nginx/sites-enabled/taskstick
-        state: link
-      notify: Restart Nginx
-
-  handlers:
-    - name: Restart Nginx
-      become: yes
-      service: name=nginx state=restarted
+    - name: Verify Service Port
+      wait_for:
+        port: 3034
+        timeout: 30

@@ -32,6 +32,7 @@ yarn-error.log
 # Miscellaneous
 /.angular/cache
 .sass-cache/
+/.vscode
 /connect.lock
 /coverage
 /libpeerconnection.log
