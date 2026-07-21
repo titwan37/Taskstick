@@ -3,9 +3,9 @@ import { Component, HostBinding, OnInit, ChangeDetectorRef, ElementRef, Renderer
 import { CommonModule } from '@angular/common';
 import { AngularSplitModule } from 'angular-split';
 import { EditorComponent } from './editor/editor.component';
-import { VisualizerComponent } from './visualizer/visualizer.component';
 import { AiPanelComponent } from './ai-panel/ai-panel.component';
 import { DateSelectorComponent } from './date-selector/date-selector.component';
+import { VisualizerComponent } from './visualizer/visualizer.component';
 import { StorageService } from './services/storage.service';
 import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -63,7 +63,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
         <as-split-area [size]="300" [minSize]="220" *ngIf="editorVisible">
           <section class="pane">
             <div class="pane-header">Editor</div>
-            <app-editor [dark]="dark" (contentChange)="onDiagramChange($event)"></app-editor>
+            <app-editor [dark]="dark" [content]="diagram" (contentChange)="onDiagramChange($event)"></app-editor>
           </section>
         </as-split-area>
         
@@ -375,7 +375,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       padding: 5px 10px !important;
       margin: 0 !important; 
       font-size: 10px !important;
-      // display: block !important; 
+      /* display: block !important; */
       display: flex;
       align-items: center;
       gap: 8px;
@@ -433,13 +433,13 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
   `]
 })
 
-  export class MainAppComponent implements OnInit {
-    diagram = '';
-    dark = true;
-    vizLayout: 'grid' | 'split' | 'ishikawa' | 'kanban' | 'mindmap' = 'grid';
-    editorVisible = true;
-    aiVisible = false; // Change this to false
-    logoSvg: SafeHtml | null = null;
+export class MainAppComponent implements OnInit {
+  diagram = '';
+  dark = true;
+  vizLayout: 'grid' | 'split' | 'ishikawa' | 'kanban' | 'mindmap' = 'grid';
+  editorVisible = true;
+  aiVisible = false; // Change this to false
+  logoSvg: SafeHtml | null = null;
 
   constructor(
     private storage: StorageService,
@@ -478,20 +478,22 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
   }
 
   private updateRootTheme() {
-      // This now correctly uses Renderer2 to add/remove classes from the host element, 
-      // avoiding the ExpressionChangedAfterItHasBeenCheckedError.
-      if (this.dark) {
-        document.documentElement.classList.remove('light-mode');
-        this.renderer.removeClass(this.el.nativeElement, 'light-mode');
-        console.info('%c [DEBUG] Remove Light Mode', 'background: #ff00ff; color: #000');
-      } else {
-        document.documentElement.classList.add('light-mode');
-        this.renderer.addClass(this.el.nativeElement, 'light-mode');
-        console.info('%c [DEBUG] Add Light Mode', 'background: #ff00ff; color: #000');
-      }
+    // This now correctly uses Renderer2 to add/remove classes from the host element, 
+    // avoiding the ExpressionChangedAfterItHasBeenCheckedError.
+    if (this.dark) {
+      document.documentElement.classList.remove('light-mode');
+      this.renderer.removeClass(this.el.nativeElement, 'light-mode');
+      console.info('%c [DEBUG] Remove Light Mode', 'background: #ff00ff; color: #000');
+    } else {
+      document.documentElement.classList.add('light-mode');
+      this.renderer.addClass(this.el.nativeElement, 'light-mode');
+      console.info('%c [DEBUG] Add Light Mode', 'background: #ff00ff; color: #000');
     }
+  }
 
-ngOnInit() {
+  ngOnInit() {
+    this.diagram = this.storage.load() || '';
+
     this.http.get<any[]>('./iconmaps.json').subscribe({
       next: (icons) => {
         const logo = icons.find(i => i.id === 'fantaskstick');
@@ -517,9 +519,9 @@ ngOnInit() {
       this.dark = !this.dark;
       localStorage.setItem('taskstick-theme', this.dark ? 'dark' : 'light');
       this.updateRootTheme();
-      
-      this.cdr.detectChanges(); 
-      
+
+      this.cdr.detectChanges();
+
       console.info(`[DEBUG] Theme toggled to: ${this.dark ? 'Dark' : 'Light'}`);
     };
 
@@ -532,8 +534,8 @@ ngOnInit() {
     }
   }
 
-  onDiagramChange(text: string) {
-    this.diagram = text;
+  onDiagramChange(event: { lang?: string; content: string } | string) {
+    this.diagram = typeof event === 'string' ? event : (event.content ?? '');
   }
   loadDate(dateKey: string) {
     this.diagram = this.storage.load(dateKey) || '';
@@ -560,7 +562,7 @@ ngOnInit() {
     console.info('[DEBUG] Saved to Database');
   }
 
-loadFromDrive() {
+  loadFromDrive() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.mmd,.txt';
@@ -571,7 +573,7 @@ loadFromDrive() {
       reader.onload = (readerEvent: any) => {
         const content = readerEvent.target.result;
         this.diagram = content;
-        this.storage.save(content); 
+        this.storage.save(content);
         console.info('[DEBUG] Loaded from "Drive" (Local Upload)');
       };
       reader.readAsText(file);

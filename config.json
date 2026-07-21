@@ -1,0 +1,26 @@
+{
+  "window": {
+    "pos": {
+      "x": 100,
+      "y": 100
+    },
+    "size": {
+      "w": 1024,
+      "h": 768
+    },
+    "maximized": false
+  },
+  "look_and_feel": {
+    "theme": 1,
+    "font": 0
+  },
+  "converter": {
+    "enabled": true
+  },
+  "last_file": "",
+  "last_directory": "",
+  "converter_path": "L:\\My Drive\\Work\\Code\\JobApply\\response_formatting.py",
+  "converter_args": "",
+  "open_tabs": [],
+  "active_tab_index": 0
+}

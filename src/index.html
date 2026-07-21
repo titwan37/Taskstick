@@ -6,6 +6,36 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <script>
+      // Monaco AMD Loader & Event Emitter Safety Net
+      (function() {
+        // 1. Guard Object.defineProperty against invalid descriptors
+        var origDefineProperty = Object.defineProperty;
+        Object.defineProperty = function(obj, prop, descriptor) {
+          if (!descriptor || (typeof descriptor !== 'object' && typeof descriptor !== 'function')) {
+            return obj;
+          }
+          return origDefineProperty.call(Object, obj, prop, descriptor);
+        };
+
+        // 2. Safety net for Monaco _onDidChange event emitter
+        var dummyEmitter = { fire: function() {}, event: function() {}, dispose: function() {} };
+        try {
+          origDefineProperty.call(Object, Object.prototype, '_onDidChange', {
+            configurable: true,
+            enumerable: false,
+            get: function() {
+              return this.__onDidChange_val || dummyEmitter;
+            },
+            set: function(val) {
+              this.__onDidChange_val = val;
+            }
+          });
+        } catch (e) {
+          console.warn('[Monaco Guard] Prototype protection skipped', e);
+        }
+      })();
+    </script>
   </head>
   <body>
     <app-root></app-root>
