@@ -1,0 +1,402 @@
+<div class="wall-wrapper" [class.dark]="dark">
+    <!-- Top Action Toolbar -->
+    <div class="wall-toolbar">
+    <div class="toolbar-left">
+        <div class="quick-add-group">
+        <input 
+            type="text" 
+            class="quick-input"
+            [(ngModel)]="quickInputText"
+            (keydown.enter)="addQuickNote()"
+            placeholder="💡 Idée soudaine... (Tapez Entrée pour projeter)" />
+        
+        <button class="quick-color-btn" [attr.data-color]="selectedQuickColor" (click)="cycleQuickColor()">
+            🎨
+        </button>
+        <button class="tool-btn primary" (click)="addQuickNote()">
+            ➕ Poser
+        </button>
+        <button 
+            type="button" 
+            class="tool-btn mic-btn" 
+            [class.is-recording]="speech.isListening()"
+            (click)="toggleVoiceDictation()"
+            [title]="speech.isListening() ? 'Arrêter la dictée vocale' : 'Dicter une note vocale (Web Speech API)'">
+            {{ speech.isListening() ? '🔴 Dictée en cours...' : '🎙️ Dicter' }}
+        </button>
+        </div>
+    </div>
+
+    <!-- Auto Grouping, History & Filters (Desktop) -->
+    <div class="toolbar-right desktop-only">
+        <div class="history-btn-group">
+        <button 
+            type="button" 
+            class="tool-btn" 
+            [disabled]="!store.canUndo()" 
+            (click)="store.undo()" 
+            title="Annuler la dernière action (Ctrl+Z)">
+            ↩️ Annuler
+        </button>
+        <button 
+            type="button" 
+            class="tool-btn" 
+            [disabled]="!store.canRedo()" 
+            (click)="store.redo()" 
+            title="Rétablir l'action annulée (Ctrl+Y)">
+            ↪️ Rétablir
+        </button>
+        </div>
+
+        <button class="tool-btn" (click)="addNewRegion()" title="Créer une zone / région en pointillés pour regrouper des Post-it">
+        📐 + Région
+        </button>
+        <button class="tool-btn highlight-btn" (click)="onAutoAlignTree()" title="Aligner en Arbre Cognitif gauche-droite sans chevauchement">
+        🌳 Arbre Cognitif
+        </button>
+        <button class="tool-btn" (click)="store.optimizeSpatialLayout()" title="Optimiser la disposition spatiale (alignement, espacement selon thèmes, cascades de sous-tâches et connexions)">
+        ⚡ Optimiser
+        </button>
+
+        <!-- Sovereign Ollama Model Badge / Selector -->
+        <div class="ai-engine-badge" [class.online]="aiAgent.isOnline()" [title]="aiAgent.isOnline() ? 'Ollama Localhost En Ligne (' + aiAgent.getEndpoint() + ')' : 'Mode secours catalogue actif'">
+        <span class="ai-dot"></span>
+        <span class="ai-engine-label">IA:</span>
+        <select 
+            [ngModel]="aiAgent.getSelectedModel()" 
+            (ngModelChange)="onModelSelectChange($event)"
+            class="ai-model-dropdown">
+            <option *ngFor="let m of aiAgent.getAvailableModels()" [value]="m">
+            {{ m === defaultModel ? '★ ' + m : m }}
+            </option>
+        </select>
+        </div>
+
+        <button class="tool-btn" (click)="autoInferDependencies()" title="Déduire et relier automatiquement les dépendances entre tâches">
+        ✨ Déduire Dépendances
+        </button>
+        <button class="tool-btn" (click)="store.autoGroupByColor()" title="Aligner en colonnes par couleur">
+        🎨 Grouper par Couleur
+        </button>
+        <button class="tool-btn" (click)="resetView()" title="Réinitialiser le zoom">
+        🔍 Reset Zoom
+        </button>
+        <button class="tool-btn" (click)="openBoardManager()" title="Vider, recharger un jour précédent ou fusionner deux tableaux">
+        🗂️ Tableaux
+        </button>
+        <span class="wall-stats-badge">
+        {{ store.notes().length }} Post-it
+        </span>
+    </div>
+
+    <!-- Mobile Controls (Quick Actions & Submenu Toggle) -->
+    <div class="toolbar-right mobile-only">
+        <button 
+        type="button" 
+        class="tool-btn" 
+        [disabled]="!store.canUndo()" 
+        (click)="store.undo()" 
+        title="Annuler (Ctrl+Z)">
+        ↩️
+        </button>
+        <button 
+        type="button" 
+        class="tool-btn" 
+        [disabled]="!store.canRedo()" 
+        (click)="store.redo()" 
+        title="Rétablir (Ctrl+Y)">
+        ↪️
+        </button>
+        <button 
+        type="button" 
+        class="tool-btn more-options-btn" 
+        (click)="mobileOptionsOpen = !mobileOptionsOpen" 
+        title="Plus d'outils">
+        ⚙️ Outils ▾
+        </button>
+    </div>
+
+    <!-- Mobile Sub-Menu Sheet for Wall -->
+    <div class="wall-mobile-sheet" *ngIf="mobileOptionsOpen" (click)="$event.stopPropagation()">
+        <div class="sheet-title">Outils Mur d'Idées ({{ store.notes().length }} Post-it)</div>
+        <div class="sheet-grid">
+        <button class="sheet-action-btn" (click)="onAutoAlignTree(); mobileOptionsOpen = false">
+            🌳 Arbre Cognitif
+        </button>
+        <button class="sheet-action-btn" (click)="store.optimizeSpatialLayout(); mobileOptionsOpen = false">
+            ⚡ Optimiser Disposition
+        </button>
+        <button class="sheet-action-btn" (click)="addNewRegion(); mobileOptionsOpen = false">
+            📐 + Région Pointillée
+        </button>
+        <button class="sheet-action-btn" (click)="autoInferDependencies(); mobileOptionsOpen = false">
+            ✨ Déduire Dépendances
+        </button>
+        <button class="sheet-action-btn" (click)="store.autoGroupByColor(); mobileOptionsOpen = false">
+            🎨 Grouper par Couleur
+        </button>
+        <button class="sheet-action-btn" (click)="resetView(); mobileOptionsOpen = false">
+            🔍 Réinitialiser Zoom
+        </button>
+        <button class="sheet-action-btn" (click)="openBoardManager()">
+            🗂️ Vider / Recharger / Fusionner Tableaux
+        </button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Infinite Zoomable Magnetic Canvas -->
+    <div #canvasContainer class="canvas-viewport" (dblclick)="onCanvasDblClick($event)">
+    <div #canvasWorld class="canvas-world">
+        <!-- Dashed Grouping Regions / Zones (UC4) -->
+        <div 
+        *ngFor="let zone of store.zones()"
+        class="dashed-region-box"
+        [style.left.px]="zone.bounds.x"
+        [style.top.px]="zone.bounds.y"
+        [style.width.px]="zone.bounds.width"
+        [style.height.px]="zone.bounds.height"
+        [style.--zone-color]="zone.colorCode || '#ff7700'">
+        
+        <!-- Region Header & Controls -->
+        <div 
+            class="region-header"
+            (mousedown)="onRegionDragStarted($event, zone)">
+            <div 
+            *ngIf="editingRegionId !== zone.id"
+            class="region-label" 
+            (dblclick)="startEditingRegionLabel($event, zone)"
+            title="Double-cliquez pour renommer la région">
+            {{ zone.label }}
+            </div>
+            <input 
+            *ngIf="editingRegionId === zone.id"
+            type="text" 
+            class="region-label-input"
+            [(ngModel)]="editingRegionLabel"
+            (blur)="saveRegionLabel(zone)"
+            (keydown.enter)="saveRegionLabel(zone)"
+            (keydown.escape)="editingRegionId = null"
+            (click)="$event.stopPropagation()" />
+            
+            <div class="region-actions">
+            <button 
+                type="button" 
+                class="region-action-btn delete" 
+                (click)="deleteRegion($event, zone.id)" 
+                title="Supprimer la région">
+                ✕
+            </button>
+            </div>
+        </div>
+
+        <!-- Resize handle bottom-right -->
+        <div 
+            class="region-resize-handle"
+            (mousedown)="onRegionResizeStarted($event, zone)"
+            title="Redimensionner la région">
+        </div>
+        </div>
+
+        <!-- SVG Connections Overlay Layer -->
+        <app-svg-connection-layer
+        [width]="6000"
+        [height]="6000"
+        [drawingLine]="drawingBezierPath">
+        </app-svg-connection-layer>
+
+        <!-- Post-it Notes Nodes -->
+        <app-post-it-node 
+        *ngFor="let note of store.filteredNotes(); trackBy: trackByNoteId"
+        [note]="note"
+        [autoFocusEdit]="newlyCreatedNoteIdForEdit() === note.id"
+        [isLinkingSource]="drawingSourceNoteId === note.id"
+        [style.left.px]="note.position.x"
+        [style.top.px]="note.position.y"
+        [style.z-index]="note.zIndex"
+        (dragStarted)="onNoteDragStarted($event)"
+        (resizeStarted)="onNoteResizeStarted($event)"
+        (connectStarted)="onConnectStarted($event)"
+        (connectEnded)="onConnectEnded($event)"
+        (quickLinkRequested)="onQuickLinkRequested($event)"
+        (addSubtask)="createConnectedSubtask($event.note)"
+        (requestDecompose)="openDecomposeModal($event.note)"
+        (contextMenuOpened)="openContextMenu($event)"
+        (editFinished)="newlyCreatedNoteIdForEdit.set(null)">
+        </app-post-it-node>
+    </div>
+    </div>
+
+    <!-- UC8: Interactive AI Micro-Action Staging Tray Modal -->
+    <div 
+    *ngIf="stagingThema"
+    class="staging-modal-backdrop" 
+    (click)="closeDecomposeModal()">
+    <div class="staging-modal" (click)="$event.stopPropagation()">
+        
+        <div class="staging-header">
+        <div class="staging-title-box">
+            <span class="ai-tray-icon">🪄</span>
+            <div>
+            <div class="staging-title">Décomposition en Micro-Actions TDAH</div>
+            <div class="staging-subtitle">Thème : <strong>{{ stagingThema.title }}</strong></div>
+            </div>
+        </div>
+        <button class="staging-close-btn" (click)="closeDecomposeModal()">✕</button>
+        </div>
+
+        <div class="staging-hint">
+        Sélectionnez, réorganisez ou modifiez les micro-actions avant de les projeter sur le mur.
+        </div>
+
+        <!-- Staging Items List -->
+        <div class="staging-items-list">
+        <div 
+            *ngFor="let item of stagedSteps; let i = index"
+            class="staging-item"
+            [class.excluded]="!item.accepted">
+            
+            <input 
+            type="checkbox" 
+            class="step-check"
+            [(ngModel)]="item.accepted" 
+            [title]="item.accepted ? 'Action acceptée' : 'Action écartée'" />
+
+            <span class="step-order">#{{ i + 1 }}</span>
+
+            <input 
+            type="text" 
+            class="step-text-input" 
+            [(ngModel)]="item.text" 
+            placeholder="Libellé de l'action..." />
+
+            <div class="step-duration-box">
+            <select [(ngModel)]="item.estimatedMinutes" class="step-duration-select">
+                <option [ngValue]="5">5m</option>
+                <option [ngValue]="10">10m</option>
+                <option [ngValue]="15">15m</option>
+                <option [ngValue]="20">20m</option>
+            </select>
+            </div>
+
+            <div class="step-reorder-buttons">
+            <button type="button" class="reorder-btn" (click)="moveStagedStep(i, -1)" [disabled]="i === 0" title="Monter">▲</button>
+            <button type="button" class="reorder-btn" (click)="moveStagedStep(i, 1)" [disabled]="i === stagedSteps.length - 1" title="Descendre">▼</button>
+            <button type="button" class="delete-step-btn" (click)="removeStagedStep(i)" title="Supprimer">🗑️</button>
+            </div>
+        </div>
+        </div>
+
+        <!-- Add custom micro-action manually -->
+        <div class="staging-add-custom">
+        <input 
+            type="text" 
+            class="add-custom-input" 
+            [(ngModel)]="customStepInput" 
+            (keydown.enter)="addCustomStagedStep()" 
+            placeholder="+ Ajouter un micro-pas manuel..." />
+        <button class="add-custom-btn" (click)="addCustomStagedStep()">Ajouter</button>
+        </div>
+
+        <!-- Modal Actions -->
+        <div class="staging-footer">
+        <button class="staging-btn cancel" (click)="closeDecomposeModal()">Annuler</button>
+        <button class="staging-btn apply" (click)="applyStagedStepsToBoard()">
+            🚀 Appliquer au Mur ({{ acceptedStepsCount }} actions)
+        </button>
+        </div>
+    </div>
+    </div>
+
+    <!-- Post-It Properties & Options Context Menu -->
+    <app-post-it-context-menu
+    *ngIf="activeContextMenuNote"
+    [note]="activeContextMenuNote"
+    [position]="contextMenuPosition"
+    (close)="closeContextMenu()"
+    (addSubtask)="createConnectedSubtask($event)"
+    (requestDecompose)="openDecomposeModal($event)">
+    </app-post-it-context-menu>
+
+    <!-- Floating Undo-Friendly Toast Banner (Smartphone / Tablet) -->
+    <div class="touch-toast-banner" *ngIf="toastBannerMessage()">
+    <span>{{ toastBannerMessage() }}</span>
+    <button *ngIf="store.canUndo()" class="toast-undo-btn" (click)="store.undo(); toastBannerMessage.set(null)">
+        ↩️ Annuler
+    </button>
+    </div>
+
+    <!-- 4. Touch-First Bottom Sheet / Modal for Board Operations -->
+    <div class="board-sheet-backdrop" *ngIf="boardManagerOpen" (click)="boardManagerOpen = false">
+    <div class="board-sheet-modal" (click)="$event.stopPropagation()">
+        <div class="sheet-pill-handle"></div>
+
+        <div class="board-sheet-header">
+        <div>
+            <div class="board-sheet-title">🗂️ Gestion des Tableaux</div>
+            <div class="board-sheet-subtitle">
+            Tableau actif : <strong>{{ formatDateLabel(store.selectedDateKey()) }}</strong> ({{ store.notes().length }} Post-it)
+            </div>
+        </div>
+        <button class="sheet-close-btn" (click)="boardManagerOpen = false">✕</button>
+        </div>
+
+        <!-- SECTION 1: CLEAR TODAY'S BOARD -->
+        <div class="board-op-card">
+        <div class="op-card-title">🧹 1. Nettoyer le tableau du jour</div>
+        <div class="op-btn-row">
+            <button class="touch-op-btn warn" (click)="onClearBoard(true)">
+            ✓ Retirer les tâches terminées
+            </button>
+            <button class="touch-op-btn danger" (click)="onClearBoard(false)">
+            🗑️ Tout vider (Page blanche)
+            </button>
+        </div>
+        </div>
+
+        <!-- SOURCE DATE PICKER FOR RELOAD & MERGE -->
+        <div class="board-op-card" *ngIf="previousDates.length > 0">
+        <div class="op-card-title">📅 Choisir un tableau précédent ({{ previousDates.length }} dispo)</div>
+        <select class="touch-date-select" [(ngModel)]="selectedSourceDateForAction">
+            <option *ngFor="let d of previousDates" [value]="d">
+            📆 Tableau du {{ formatDateLabel(d) }}
+            </option>
+        </select>
+
+        <!-- SECTION 2: RELOAD PREVIOUS BOARD -->
+        <div class="op-card-subtitle">⏪ 2. Recharger ce tableau</div>
+        <div class="op-btn-row">
+            <button class="touch-op-btn" (click)="onReloadDateBoard('switch')">
+            👁️ Ouvrir ce jour
+            </button>
+            <button class="touch-op-btn primary" (click)="onReloadDateBoard('carry_over_open')">
+            ⚡ Rapatrier les tâches non finies
+            </button>
+        </div>
+
+        <!-- SECTION 3: MERGE TWO BOARDS TOGETHER -->
+        <div class="op-card-subtitle">🔀 3. Fusionner avec le tableau actuel</div>
+        <div class="merge-toggles">
+            <label class="touch-checkbox">
+            <input type="checkbox" [(ngModel)]="mergeOnlyOpenTasks" />
+            <span>Ignorer les tâches déjà terminées</span>
+            </label>
+            <label class="touch-checkbox">
+            <input type="checkbox" [(ngModel)]="mergeAutoAlign" />
+            <span>Réaligner en Arbre Cognitif après fusion</span>
+            </label>
+        </div>
+
+        <div class="op-btn-row">
+            <button class="touch-op-btn accent" (click)="onMergeDateBoard()">
+            ➕ Fusionner ce jour dans le mur actif
+            </button>
+            <button class="touch-op-btn" (click)="triggerMergeFromFile()">
+            📂 Fusionner un fichier .JSON
+            </button>
+        </div>
+        </div>
+    </div>
+    </div>
+    <!-- end of -->
+</div>

@@ -221,6 +221,13 @@ export interface CascadingGroup {
           <div class="grid-title">
             <span>📅</span>
             <span>Agenda Hebdomadaire Adaptatif (Énergie vs Temps)</span>
+            <button 
+              type="button" 
+              class="gcal-sync-btn" 
+              (click)="gcalSync.authenticateAndSync()" 
+              [title]="'Synchroniser l’agenda avec Google Calendar'">
+              🔄 Synchro Google Calendar
+            </button>
           </div>
           <div class="energy-legend">
             <span class="legend-item">⚡ Fort focus (Matin)</span>
@@ -740,6 +747,22 @@ export interface CascadingGroup {
       gap: 8px;
       font-size: 16px;
       font-weight: 700;
+    }
+    .gcal-sync-btn {
+      margin-left: 12px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #4285f4;
+      background: rgba(66, 133, 244, 0.15);
+      color: #60a5fa;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .gcal-sync-btn:hover {
+      background: #4285f4;
+      color: #fff;
     }
     .energy-legend {
       display: flex;

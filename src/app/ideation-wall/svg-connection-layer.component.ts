@@ -176,8 +176,7 @@ export class SvgConnectionLayerComponent {
   }
 
   isCriticalEdge(edge: PostItEdge): boolean {
-    const rootNotes = this.store.rootActionableNotes();
-    const topStart = rootNotes.length > 0 ? rootNotes[0] : null;
+    const topStart = this.store.topStartingPoint();
     const focusNote = this.store.activeFocusNote();
     const activeId = focusNote?.id || topStart?.id;
     if (!activeId) return false;

@@ -63,6 +63,8 @@ const DEFAULT_CONFIG: LayoutConfig = {
   originY: 80
 };
 
+
+
 @Injectable({ providedIn: 'root' })
 export class WorkflowLayoutService {
 

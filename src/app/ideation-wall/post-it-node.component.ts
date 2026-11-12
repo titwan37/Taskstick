@@ -48,6 +48,30 @@ import { AiAgentService } from '../services/ai-agent.service';
           (click)="onToggleStatus($event)">
           <span class="status-icon">{{ getStatusIcon() }}</span>
         </button>
+        <span class="note-type-badge">{{ getNatureBadge() }}</span>
+
+        <!-- Mini Barre d'Action Rapide de Liaison (2 clics) -->
+          <div class="quick-link-actions">
+            <!-- Action 1: Décoller du cluster / Déconnecter tous les liens -->
+            <button 
+              *ngIf="hasConnectionsOrCluster"
+              type="button" 
+              class="quick-action-pill unglue"
+              (click)="onQuickUnglue($event)"
+              title="1-Clic : Décoller et couper les dépendances de ce post-it">
+              ✂️
+            </button>
+
+            <!-- Action 2: Relier rapidement (Passe en mode ciblage) -->
+            <button 
+              type="button" 
+              class="quick-action-pill link-target"
+              [class.active]="isLinkingSource"
+              (click)="onQuickStartLink($event)"
+              title="Clic 1: Activer la liaison ➔ Clic 2 sur un autre post-it pour connecter">
+              🔗
+            </button>
+          </div>
 
         <span class="thema-badge" *ngIf="isThema" title="Thème / Sujet principal">
           🏛️ Thème
@@ -479,6 +503,61 @@ import { AiAgentService } from '../services/ai-agent.service';
       color: #991b1b;
     }
 
+    .note-type-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.08);
+      color: inherit;
+    }
+
+    /* Quick Link & Unglue Action Bar */
+    .quick-link-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-left: 2px;
+    }
+
+    .quick-action-pill {
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 12px;
+      padding: 1px 5px;
+      font-size: 11px;
+      line-height: 1.2;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .quick-action-pill:hover {
+      transform: scale(1.15);
+      background: #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+
+    .quick-action-pill.unglue:hover {
+      border-color: #ef4444;
+      background: #fee2e2;
+    }
+
+    .quick-action-pill.link-target.active {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #1d4ed8;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.4);
+      animation: pulse-link 1.2s infinite alternate;
+    }
+
+    @keyframes pulse-link {
+      from { transform: scale(1); }
+      to { transform: scale(1.18); }
+    }
+
     .actions-right {
       display: flex;
       align-items: center;
@@ -835,11 +914,13 @@ export class PostItNodeComponent {
       this.startEditingTitle();
     }
   }
+  @Input() isLinkingSource = false;
 
   @Output() dragStarted = new EventEmitter<{ noteId: string; clientX: number; clientY: number }>();
   @Output() resizeStarted = new EventEmitter<{ noteId: string; clientX: number; clientY: number }>();
   @Output() connectStarted = new EventEmitter<{ noteId: string; clientX: number; clientY: number }>();
   @Output() connectEnded = new EventEmitter<{ targetNoteId: string }>();
+  @Output() quickLinkRequested = new EventEmitter<{ noteId: string }>();
   @Output() addSubtask = new EventEmitter<{ note: ADHDPostItNote }>();
   @Output() requestDecompose = new EventEmitter<{ note: ADHDPostItNote }>();
   @Output() contextMenuOpened = new EventEmitter<{ note: ADHDPostItNote; clientX: number; clientY: number }>();
@@ -874,6 +955,32 @@ export class PostItNodeComponent {
 
   get isPivot(): boolean {
     return this.store.isPivotNote(this.note);
+  }
+
+  getNatureBadge(): string {
+    if (this.isThema) return '🏛️ Thème';
+    if (this.isPivot) return '💎 Pivot';
+    return '⚡ Action';
+  }
+
+  get hasConnectionsOrCluster(): boolean {
+    return !!this.note.clusterId || this.store.edges().some(e => e.sourceId === this.note.id || e.targetId === this.note.id);
+  }
+
+  async onQuickUnglue(event: MouseEvent) {
+    event.stopPropagation();
+    if (this.note.clusterId) {
+      await this.store.unstickNote(this.note.id);
+    }
+    const incidentEdges = this.store.edges().filter(e => e.sourceId === this.note.id || e.targetId === this.note.id);
+    for (const edge of incidentEdges) {
+      await this.store.deleteEdge(edge.id);
+    }
+  }
+
+  onQuickStartLink(event: MouseEvent) {
+    event.stopPropagation();
+    this.quickLinkRequested.emit({ noteId: this.note.id });
   }
 
   get cumulativeDuration(): { totalMinutes: number; formatted: string; remainingMinutes: number; remainingFormatted: string } {

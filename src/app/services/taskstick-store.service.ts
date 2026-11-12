@@ -20,6 +20,11 @@ import {
   IdeationWallSnapshot
 } from '../models/taskstick-graph.model';
 
+export function getTodayDateKey(): string {
+  const d = new Date();
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
 @Injectable({ providedIn: 'root' })
 export class TaskstickStoreService {
   private db = inject(TaskstickDbService);
@@ -38,11 +43,12 @@ export class TaskstickStoreService {
     selectedTag: 'all',
     searchQuery: ''
   });
-  readonly selectedDateKey = signal<string>(this.getTodayKey());
+  readonly selectedDateKey = signal<string>(getTodayDateKey());
   readonly availableDates = signal<string[]>([]);
   readonly isInitialized = signal<boolean>(false);
   readonly activeFocusNote = signal<ADHDPostItNote | null>(null);
   readonly activeWorkspaceZone = signal<'wall' | 'tasks' | 'dashboard' | 'legacy_studio'>('wall');
+  readonly spotlightBottlenecksOnly = signal<boolean>(false);
 
   // --- UNDO / REDO STATE ---
   readonly canUndo = signal<boolean>(false);
@@ -128,6 +134,108 @@ export class TaskstickStoreService {
       !this.isPivotNote(n) && 
       !blockedIds.has(n.id)
     );
+  });
+
+  /**
+   * Transitive bottleneck weight: computes how many downstream uncompleted nodes each task unlocks.
+   */
+  readonly transitiveUnlockMap = computed<Map<string, number>>(() => {
+    const allNotes = this.notes();
+    const allEdges = this.edges();
+    const uncompletedNotes = allNotes.filter(n => this.isNoteOpen(n));
+    const uncompletedIds = new Set(uncompletedNotes.map(n => n.id));
+
+    // Build downstream adjacency for depends_on edges
+    const downstream = new Map<string, string[]>();
+    for (const edge of allEdges) {
+      if (edge.type === 'depends_on' && uncompletedIds.has(edge.targetId)) {
+        if (!downstream.has(edge.sourceId)) downstream.set(edge.sourceId, []);
+        downstream.get(edge.sourceId)!.push(edge.targetId);
+      }
+    }
+
+    const unlockMap = new Map<string, number>();
+
+    for (const note of uncompletedNotes) {
+      const visited = new Set<string>();
+      const queue = [note.id];
+      while (queue.length > 0) {
+        const curr = queue.shift()!;
+        const targets = downstream.get(curr) || [];
+        for (const tid of targets) {
+          if (!visited.has(tid) && tid !== note.id) {
+            visited.add(tid);
+            queue.push(tid);
+          }
+        }
+      }
+      unlockMap.set(note.id, visited.size);
+    }
+
+    return unlockMap;
+  });
+
+  /**
+   * Keystone entry points: actionable root tasks ranked by liberation-to-effort ratio.
+   */
+  readonly keystoneEntryPoints = computed<ADHDPostItNote[]>(() => {
+    const roots = this.rootActionableNotes();
+    const unlockMap = this.transitiveUnlockMap();
+
+    return [...roots].sort((a, b) => {
+      const unlockA = unlockMap.get(a.id) || 0;
+      const unlockB = unlockMap.get(b.id) || 0;
+      const effortA = Math.max(5, a.estimatedMinutes || 15);
+      const effortB = Math.max(5, b.estimatedMinutes || 15);
+
+      const ratioA = unlockA / effortA;
+      const ratioB = unlockB / effortB;
+
+      if (ratioB !== ratioA) {
+        return ratioB - ratioA; // Higher liberation ratio first
+      }
+      return unlockB - unlockA;
+    });
+  });
+
+  /**
+   * Top starting point: single highest-leverage task for ADHD momentum initiation.
+   */
+  readonly topStartingPoint = computed<ADHDPostItNote | null>(() => {
+    const keystones = this.keystoneEntryPoints();
+    return keystones.length > 0 ? keystones[0] : (this.rootActionableNotes()[0] || null);
+  });
+
+  /**
+   * Real-time cognitive load metrics: working-memory pressure (0-100%) and WIP penalty.
+   */
+  readonly cognitiveLoadMetrics = computed(() => {
+    const allNotes = this.notes();
+    const openNotes = allNotes.filter(n => this.isNoteOpen(n));
+    const inProgressNotes = allNotes.filter(n => n.status === 'in_progress');
+
+    let totalLoadPoints = 0;
+    for (const n of openNotes) {
+      if (n.cognitiveLoad === 'high') totalLoadPoints += 3;
+      else if (n.cognitiveLoad === 'medium') totalLoadPoints += 2;
+      else totalLoadPoints += 1;
+    }
+
+    // WIP penalty: more than 1 in_progress task adds exponential cognitive strain
+    const wipCount = inProgressNotes.length;
+    const wipPenalty = wipCount > 1 ? (wipCount - 1) * 15 : 0;
+
+    // Working memory saturation index bounded between 0 and 100
+    const rawIndex = (totalLoadPoints * 4) + wipPenalty;
+    const saturationPercentage = Math.min(100, Math.max(0, Math.round(rawIndex)));
+
+    return {
+      totalOpenTasks: openNotes.length,
+      inProgressCount: wipCount,
+      wipPenalty,
+      saturationPercentage,
+      level: saturationPercentage >= 80 ? 'overload' : saturationPercentage >= 50 ? 'moderate' : 'optimal'
+    };
   });
 
   /** Plannable notes for the weekly schedule backlog (open, unscheduled, and all predecessors are completed or scheduled) */
@@ -583,40 +691,14 @@ export class TaskstickStoreService {
   /** Initialize store by loading from IndexedDB / LocalStorage for selected date */
   async initStore(): Promise<void> {
     try {
-      const dateKey = this.selectedDateKey();
-      let loadedNotes = await this.db.notes.where('zoneId').equals(dateKey).toArray();
+      const todayKey = this.getTodayKey();
+      this.selectedDateKey.set(todayKey);
+
+      let loadedNotes = await this.db.notes.where('zoneId').equals(todayKey).toArray();
 
       if (loadedNotes.length === 0) {
-        // Fallback 1: Check if legacy localStorage has content for today
-        const raw = localStorage.getItem(`journal-${dateKey}`);
-        if (raw) {
-          await this.migrationAdapter.migrateLegacyLocalStorage();
-          loadedNotes = await this.db.notes.where('zoneId').equals(dateKey).toArray();
-        }
-      }
-
-      // Fallback 2: If still empty (new day), auto-load the most recent existing board from Dexie or localStorage!
-      if (loadedNotes.length === 0) {
-        const allDbNotes = await this.db.notes.toArray();
-        if (allDbNotes.length > 0) {
-          const availableDates = Array.from(new Set(allDbNotes.map(n => n.zoneId).filter(Boolean))) as string[];
-          availableDates.sort().reverse();
-          if (availableDates.length > 0) {
-            const latestDate = availableDates[0];
-            console.info(`[TaskstickStore] Board for ${dateKey} is empty. Auto-loading most recent wall from ${latestDate}`);
-            this.selectedDateKey.set(latestDate);
-            loadedNotes = await this.db.notes.where('zoneId').equals(latestDate).toArray();
-          }
-        } else {
-          // Check localStorage legacy journals
-          const legacyDates = this.storage.listDates();
-          if (legacyDates.length > 0) {
-            await this.migrationAdapter.migrateLegacyLocalStorage();
-            const latestDate = legacyDates[0];
-            this.selectedDateKey.set(latestDate);
-            loadedNotes = await this.db.notes.where('zoneId').equals(latestDate).toArray();
-          }
-        }
+        console.info(`[TaskstickStore] Nouvel espace pour aujourd'hui (${todayKey}) initialisé.`);
+        loadedNotes = [];
       }
 
       const loadedEdges = await this.db.edges.toArray();
@@ -624,7 +706,6 @@ export class TaskstickStoreService {
       const loadedZones = await this.db.zones.toArray();
 
       this.notes.set(this.recalculateBlockedFlags(loadedNotes, loadedEdges));
-      await this.refreshAvailableDates();
       this.edges.set(loadedEdges);
       this.clusters.set(loadedClusters);
       this.zones.set(loadedZones);
@@ -834,6 +915,88 @@ export class TaskstickStoreService {
     await this.updateNote(noteId, { clusterId: undefined });
   }
 
+  // Dans src/app/services/taskstick-store.service.ts
+  async autoOrganizeByThemes(): Promise<void> {
+    this.recordSnapshot();
+    const allNotes = [...this.notes()];
+    const allEdges = this.edges();
+
+    // 1. Nettoyage des préfixes résiduels [ ] (color)
+    for (const n of allNotes) {
+      n.title = n.title.replace(/(\[\s*\]\s*\([a-z]+\)\s*)+/gi, '').trim();
+    }
+
+    // 2. Détection des racines Thèmes (notes marquées thème ou avec in-degree = 0)
+    const themeRoots = allNotes.filter(n => this.isThemaNote(n));
+    const assigned = new Set<string>();
+    const buckets: Array<{ theme: ADHDPostItNote; items: ADHDPostItNote[] }> = [];
+
+    for (const theme of themeRoots) {
+      const family = this.getChainActionDescendants(theme.id);
+      const familyIds = new Set(family.map(f => f.id));
+      familyIds.add(theme.id);
+      
+      buckets.push({
+        theme,
+        items: allNotes.filter(n => familyIds.has(n.id))
+      });
+      familyIds.forEach(id => assigned.add(id));
+    }
+
+    // Ramassage des orphelins restants dans un bac général
+    const unassigned = allNotes.filter(n => !assigned.has(n.id));
+    if (unassigned.length > 0) {
+      buckets.push({
+        theme: { id: 'temp-inbox', title: 'À classer / Inbox', color: 'orange' } as any,
+        items: unassigned
+      });
+    }
+
+    // 3. Disposition verticale étagée des blocs thématiques (Left-to-Right par bloc)
+    let currentY = 80;
+    const newZones: WhiteboardZone[] = [];
+
+    for (let i = 0; i < buckets.length; i++) {
+      const bucket = buckets[i];
+      const themeName = bucket.theme.title.split('\n')[0].substring(0, 28);
+      const zoneId = `zone-theme-${i}-${Date.now()}`;
+      const zoneColor = bucket.theme.color === 'yellow' ? '#f59e0b' :
+                        bucket.theme.color === 'blue' ? '#3b82f6' :
+                        bucket.theme.color === 'pink' ? '#ec4899' :
+                        bucket.theme.color === 'green' ? '#10b981' : '#a855f7';
+
+      // Disposer les sous-tâches du thème en arborescence horizontale
+      let colX = 120;
+      let maxSubY = currentY + 60;
+
+      bucket.items.forEach((item, idx) => {
+        item.position = { x: colX, y: currentY + 60 + (idx % 3) * 220 };
+        item.zoneId = this.selectedDateKey();
+        if ((idx + 1) % 3 === 0) colX += 280;
+      });
+
+      const zoneWidth = Math.max(900, colX + 320);
+      const zoneHeight = Math.max(340, (Math.min(bucket.items.length, 3)) * 230 + 100);
+
+      newZones.push({
+        id: zoneId,
+        label: `Dossier: ${themeName}`,
+        colorCode: zoneColor,
+        bounds: { x: 60, y: currentY, width: zoneWidth, height: zoneHeight }
+      });
+
+      currentY += zoneHeight + 90;
+    }
+
+    await this.db.notes.bulkPut(allNotes);
+    await this.db.zones.clear();
+    await this.db.zones.bulkPut(newZones);
+
+    this.zones.set(newZones);
+    this.notes.set(this.recalculateBlockedFlags(allNotes, allEdges));
+    await this.optimizeSpatialLayout();
+  }
+
   /** Add an edge with DAG cycle detection (accepts either a PostItEdge or sourceId, targetId, relationType) */
   async addEdge(
     edgeOrSourceId: PostItEdge | string,
@@ -983,17 +1146,14 @@ export class TaskstickStoreService {
     }
 
     // 2. Prepare TaskNode models with dynamic sizing formula & enforced minimum dimensions
-    const taskNodes: TaskNode[] = allNotes.map(n => {
-      const { width, height } = computeNodeDimensions(n.title, n.size);
-      return {
-        id: n.id,
-        width,
-        height,
-        groupId: noteZoneMapping.get(n.id),
-        x: n.position.x,
-        y: n.position.y
-      };
-    });
+    const taskNodes: TaskNode[] = allNotes.map(n => ({
+      id: n.id,
+      width: n.size?.width || 240,
+      height: n.size?.height || 180, // Utilise la taille sauvegardée dans le JSON
+      groupId: noteZoneMapping.get(n.id),
+      x: n.position.x,
+      y: n.position.y
+    }));
 
     // 3. Prepare TaskEdge models
     const taskEdges: TaskEdge[] = allEdges.map(e => ({
@@ -1522,7 +1682,270 @@ export class TaskstickStoreService {
   }
 
 
+// Inside src/app/services/taskstick-store.service.ts
 
+/**
+ * 1. CLEAR BOARD: Clears the active board (all notes, edges, and regions for the current date).
+ * Saves an Undo snapshot first so a single tap on ↩️ restores everything.
+ */
+async clearActiveBoard(onlyCompleted = false): Promise<number> {
+  const currentNotes = this.notes();
+  if (currentNotes.length === 0) return 0;
+
+  this.recordSnapshot();
+  const dateKey = this.selectedDateKey();
+
+  const notesToDelete = onlyCompleted
+    ? currentNotes.filter(n => this.isNoteCompleted(n))
+    : currentNotes;
+
+  const deleteIds = new Set(notesToDelete.map(n => n.id));
+  const remainingNotes = currentNotes.filter(n => !deleteIds.has(n.id));
+
+  // Delete target notes from IndexedDB
+  await this.db.notes.bulkDelete(Array.from(deleteIds));
+
+  // Delete incident edges connected to removed notes
+  const currentEdges = this.edges();
+  const edgesToDelete = currentEdges.filter(
+    e => deleteIds.has(e.sourceId) || deleteIds.has(e.targetId)
+  );
+  await this.db.edges.bulkDelete(edgesToDelete.map(e => e.id));
+
+  const remainingEdges = currentEdges.filter(
+    e => !deleteIds.has(e.sourceId) && !deleteIds.has(e.targetId)
+  );
+
+  // If clearing the whole board, also clear visual zones and legacy localStorage for this date
+  if (!onlyCompleted) {
+    const zoneIds = this.zones().map(z => z.id);
+    if (zoneIds.length > 0) {
+      await this.db.zones.bulkDelete(zoneIds);
+    }
+    this.zones.set([]);
+    localStorage.removeItem(`journal-${dateKey}`);
+  } else {
+    await this.migrationAdapter.syncGraphToLegacyLocalStorage(dateKey, remainingNotes);
+  }
+
+  this.edges.set(remainingEdges);
+  this.notes.set(this.recalculateBlockedFlags(remainingNotes, remainingEdges));
+  return deleteIds.size;
+}
+
+/**
+ * Helper: Loads notes & internal edges for any historical dateKey from IndexedDB or legacy storage.
+ */
+private async fetchBoardDataByDate(dateKey: string): Promise<{
+  notes: ADHDPostItNote[];
+  edges: PostItEdge[];
+}> {
+  let sourceNotes = await this.db.notes.where('zoneId').equals(dateKey).toArray();
+
+  if (sourceNotes.length === 0) {
+    const raw = localStorage.getItem(`journal-${dateKey}`);
+    if (raw) {
+      sourceNotes = this.migrationAdapter.parseMmdToNotes(raw, dateKey);
+    }
+  }
+
+  const noteIdSet = new Set(sourceNotes.map(n => n.id));
+  const allEdges = await this.db.edges.toArray();
+  const sourceEdges = allEdges.filter(
+    e => noteIdSet.has(e.sourceId) && noteIdSet.has(e.targetId)
+  );
+
+  return { notes: sourceNotes, edges: sourceEdges };
+}
+
+/**
+ * 2. RELOAD A PREVIOUS DAY BOARD:
+ * - 'switch': Navigate directly to that date's board.
+ * - 'replace_today': Replace today's board with a fresh copy of the previous day's board.
+ * - 'carry_over_open': Reload only unfinished (open/blocked/in_progress) tasks & their dependencies into today.
+ */
+async reloadPreviousBoard(
+  sourceDateKey: string,
+  mode: 'switch' | 'replace_today' | 'carry_over_open' = 'carry_over_open'
+): Promise<number> {
+  if (!sourceDateKey) return 0;
+
+  if (mode === 'switch') {
+    await this.switchDate(sourceDateKey);
+    return this.notes().length;
+  }
+
+  const todayKey = this.getTodayKey();
+  const { notes: rawSourceNotes, edges: rawSourceEdges } = await this.fetchBoardDataByDate(sourceDateKey);
+  if (rawSourceNotes.length === 0) return 0;
+
+  this.recordSnapshot();
+
+  // Filter if carrying over only unfinished tasks (keep parent Themas/Pivots for context)
+  const filteredSourceNotes = mode === 'carry_over_open'
+    ? rawSourceNotes.filter(n => this.isNoteOpen(n) || this.isThemaNote(n) || this.isPivotNote(n))
+    : rawSourceNotes;
+
+  if (mode === 'replace_today') {
+    await this.clearActiveBoard(false);
+  }
+
+  this.selectedDateKey.set(todayKey);
+  return this.mergeNotesAndEdgesIntoActiveBoard(filteredSourceNotes, rawSourceEdges, {
+    deduplicateByTitle: true,
+    autoLayout: false
+  });
+}
+
+/**
+ * 3. MERGE TWO BOARDS TOGETHER:
+ * Merges another date's board OR an external IdeationWallSnapshot (.json) into the active board.
+ * - Remaps IDs so historical records in Dexie are never corrupted.
+ * - Deduplicates identical note titles (re-linking incoming edges to existing notes).
+ * - Shifts merged notes to the right of existing notes so nothing overlaps.
+ */
+async mergeWithBoard(
+  source: string | IdeationWallSnapshot,
+  options: { onlyOpenTasks?: boolean; autoLayout?: boolean } = {}
+): Promise<number> {
+  this.recordSnapshot();
+
+  let incomingNotes: ADHDPostItNote[] = [];
+  let incomingEdges: PostItEdge[] = [];
+
+  if (typeof source === 'string') {
+    const data = await this.fetchBoardDataByDate(source);
+    incomingNotes = data.notes;
+    incomingEdges = data.edges;
+  } else {
+    incomingNotes = source.notes || [];
+    incomingEdges = source.edges || [];
+  }
+
+  if (options.onlyOpenTasks) {
+    incomingNotes = incomingNotes.filter(
+      n => this.isNoteOpen(n) || this.isThemaNote(n) || this.isPivotNote(n)
+    );
+  }
+
+  if (incomingNotes.length === 0) return 0;
+
+  return this.mergeNotesAndEdgesIntoActiveBoard(incomingNotes, incomingEdges, {
+    deduplicateByTitle: true,
+    autoLayout: options.autoLayout ?? true
+  });
+}
+
+/**
+ * Core Graph Merger: Remaps IDs, resolves title collisions, offsets 2D coordinates,
+ * and splices dependency edges without creating cycles.
+ */
+private async mergeNotesAndEdgesIntoActiveBoard(
+  incomingNotes: ADHDPostItNote[],
+  incomingEdges: PostItEdge[],
+  config: { deduplicateByTitle: boolean; autoLayout: boolean }
+): Promise<number> {
+  const activeDateKey = this.selectedDateKey();
+  const existingNotes = this.notes();
+  const existingEdges = this.edges();
+
+  // Compute horizontal bounding box offset so merged board lands cleanly to the right
+  const maxExistingX = existingNotes.reduce(
+    (max, n) => Math.max(max, n.position.x + (n.size?.width || 210)),
+    60
+  );
+  const minIncomingX = incomingNotes.reduce(
+    (min, n) => Math.min(min, n.position.x),
+    Infinity
+  );
+  const offsetX = existingNotes.length > 0
+    ? (maxExistingX + 140) - (Number.isFinite(minIncomingX) ? minIncomingX : 0)
+    : 0;
+
+  // Map oldNoteId -> targetNoteId (either an existing note with same title, or a newly minted ID)
+  const idRemap = new Map<string, string>();
+  const existingByTitle = new Map<string, ADHDPostItNote>(
+    existingNotes.map(n => [n.title.trim().toLowerCase(), n])
+  );
+
+  const notesToInsert: ADHDPostItNote[] = [];
+  const now = Date.now();
+
+  for (const srcNote of incomingNotes) {
+    const normTitle = srcNote.title.trim().toLowerCase();
+    const match = config.deduplicateByTitle ? existingByTitle.get(normTitle) : undefined;
+
+    if (match) {
+      // Reuse existing note ID so incoming edges wire directly into the existing note
+      idRemap.set(srcNote.id, match.id);
+    } else {
+      const newId = `note-${now}-${Math.random().toString(36).substring(2, 7)}`;
+      idRemap.set(srcNote.id, newId);
+
+      const clonedNote: ADHDPostItNote = {
+        ...srcNote,
+        id: newId,
+        zoneId: activeDateKey,
+        clusterId: undefined,
+        position: {
+          x: Math.round((srcNote.position.x + offsetX) / 10) * 10,
+          y: Math.round(srcNote.position.y / 10) * 10
+        },
+        createdAt: now,
+        updatedAt: now
+      };
+      notesToInsert.push(clonedNote);
+      existingByTitle.set(normTitle, clonedNote);
+    }
+  }
+
+  // Remap edges and prevent duplicates
+  const existingEdgeKeys = new Set(
+    existingEdges.map(e => `${e.sourceId}->${e.targetId}:${e.type}`)
+  );
+  const edgesToInsert: PostItEdge[] = [];
+
+  for (const srcEdge of incomingEdges) {
+    const newSourceId = idRemap.get(srcEdge.sourceId);
+    const newTargetId = idRemap.get(srcEdge.targetId);
+
+    if (!newSourceId || !newTargetId || newSourceId === newTargetId) continue;
+
+    const edgeKey = `${newSourceId}->${newTargetId}:${srcEdge.type}`;
+    if (!existingEdgeKeys.has(edgeKey)) {
+      existingEdgeKeys.add(edgeKey);
+      edgesToInsert.push({
+        id: `edge_${newSourceId}_${newTargetId}_${now}`,
+        sourceId: newSourceId,
+        targetId: newTargetId,
+        type: srcEdge.type,
+        label: srcEdge.label
+      });
+    }
+  }
+
+  // Persist to Dexie & update reactive signals
+  if (notesToInsert.length > 0) {
+    await this.db.notes.bulkPut(notesToInsert);
+  }
+  if (edgesToInsert.length > 0) {
+    await this.db.edges.bulkPut(edgesToInsert);
+  }
+
+  const combinedNotes = [...existingNotes, ...notesToInsert];
+  const combinedEdges = [...existingEdges, ...edgesToInsert];
+
+  this.edges.set(combinedEdges);
+  this.notes.set(this.recalculateBlockedFlags(combinedNotes, combinedEdges));
+  await this.migrationAdapter.syncGraphToLegacyLocalStorage(activeDateKey, combinedNotes);
+  await this.refreshAvailableDates();
+
+  if (config.autoLayout && notesToInsert.length > 0) {
+    await this.optimizeSpatialLayout();
+  }
+
+  return notesToInsert.length;
+}
 
 
 }
