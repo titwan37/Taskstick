@@ -1,3 +1,4 @@
+// src/app/services/workflow-layout.service.ts
 import { Injectable } from '@angular/core';
 
 export interface TaskNode {
@@ -27,19 +28,17 @@ export interface TaskGroup {
 
 export interface LayoutConfig {
   nodeGapX: number;       // Horizontal spacing between dependency layers
-  nodeGapY: number;       // Vertical spacing between parallel tasks
-  groupPadding: number;   // Internal padding inside groups
-  groupGapX: number;      // Horizontal spacing between distinct groups/meta-nodes
-  groupGapY: number;      // Vertical spacing between distinct groups/meta-nodes
+  nodeGapY: number;       // Minimum vertical gap between parallel siblings
+  groupPadding: number;   // Padding within thematic zones
+  groupGapX: number;
+  groupGapY: number;
+  originX: number;
+  originY: number;
 }
 
 export const DEFAULT_NODE_WIDTH = 210;
 export const MIN_NODE_HEIGHT = 160;
 
-/**
- * Computes dynamic sizing for a Post-it note based on title character count
- * while enforcing the strict minimum bounding box (210px x 160px).
- */
 export function computeNodeDimensions(title: string, customSize?: { width: number; height: number }): { width: number; height: number } {
   if (customSize && customSize.width >= 192 && customSize.height >= 160) {
     return { width: customSize.width, height: customSize.height };
@@ -55,23 +54,18 @@ export function computeNodeDimensions(title: string, customSize?: { width: numbe
 }
 
 const DEFAULT_CONFIG: LayoutConfig = {
-  nodeGapX: 90,
-  nodeGapY: 45,
-  groupPadding: 50,
-  groupGapX: 120,
-  groupGapY: 80
+  nodeGapX: 110,
+  nodeGapY: 48,
+  groupPadding: 60,
+  groupGapX: 140,
+  groupGapY: 90,
+  originX: 80,
+  originY: 80
 };
 
 @Injectable({ providedIn: 'root' })
 export class WorkflowLayoutService {
 
-  /**
-   * Main entry point: Optimizes positions of tasks and group boundaries.
-   * - Strict Left-to-Right topological rank levels (Levels 1, 2, 3...)
-   * - Parallel branches & forks spread along discrete vertical slots
-   * - Strict compound group containment with auto-fitted bounding box + header
-   * - Collision-free global meta-graph placement
-   */
   public optimizeLayout(
     nodes: TaskNode[],
     edges: TaskEdge[],
@@ -82,73 +76,59 @@ export class WorkflowLayoutService {
     const clonedNodes: TaskNode[] = nodes.map(n => ({ ...n }));
     const clonedGroups: TaskGroup[] = groups.map(g => ({ ...g }));
 
-    // 1. Partition nodes into groups and ungrouped (orphan) nodes
+    // 1. Separate grouped notes from ungrouped notes
     const groupNodeMap = new Map<string, TaskNode[]>();
     const ungroupedNodes: TaskNode[] = [];
 
     clonedNodes.forEach(node => {
       if (node.groupId && clonedGroups.some(g => g.id === node.groupId)) {
-        if (!groupNodeMap.has(node.groupId)) {
-          groupNodeMap.set(node.groupId, []);
-        }
+        if (!groupNodeMap.has(node.groupId)) groupNodeMap.set(node.groupId, []);
         groupNodeMap.get(node.groupId)!.push(node);
       } else {
         ungroupedNodes.push(node);
       }
     });
 
-    // 2. PHASE 1: Optimize inner layouts for each group (Left-to-Right & Top-to-Down)
+    // 2. Layout inner sub-graphs for each thematic zone
     const groupDimensions = new Map<string, { width: number; height: number }>();
     clonedGroups.forEach(grp => {
       const internalNodes = groupNodeMap.get(grp.id) || [];
       if (internalNodes.length === 0) {
-        const defaultW = 240;
-        const defaultH = 160;
-        grp.width = defaultW;
-        grp.height = defaultH;
-        groupDimensions.set(grp.id, { width: defaultW, height: defaultH });
+        grp.width = 260;
+        grp.height = 180;
+        groupDimensions.set(grp.id, { width: 260, height: 180 });
         return;
       }
 
-      // Filter internal edges
       const internalNodeIds = new Set(internalNodes.map(n => n.id));
       const internalEdges = edges.filter(
         e => internalNodeIds.has(e.sourceId) && internalNodeIds.has(e.targetId)
       );
 
-      // Layout inner elements relative to group coordinate system
-      const headerOffset = 30; // Dedicated space for group header/title
-      this.layoutDagComponent(internalNodes, internalEdges, {
+      const headerOffset = 36;
+      this.layoutCognitiveTree(internalNodes, internalEdges, {
         gapX: cfg.nodeGapX,
         gapY: cfg.nodeGapY,
         originX: cfg.groupPadding,
         originY: cfg.groupPadding + headerOffset
       });
 
-      // Calculate exact enclosing bounding box encompassing all child nodes
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minY = Infinity;
-      let maxY = -Infinity;
-
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       internalNodes.forEach(n => {
         const nx = n.x ?? cfg.groupPadding;
         const ny = n.y ?? (cfg.groupPadding + headerOffset);
-        if (nx < minX) minX = nx;
-        if (nx + n.width > maxX) maxX = nx + n.width;
-        if (ny < minY) minY = ny;
-        if (ny + n.height > maxY) maxY = ny + n.height;
+        minX = Math.min(minX, nx);
+        maxX = Math.max(maxX, nx + n.width);
+        minY = Math.min(minY, ny);
+        maxY = Math.max(maxY, ny + n.height);
       });
 
-      const bboxWidth = (maxX - minX) + cfg.groupPadding * 2;
-      const bboxHeight = (maxY - minY) + cfg.groupPadding * 2 + headerOffset;
-
-      grp.width = Math.max(bboxWidth, 260);
-      grp.height = Math.max(bboxHeight, 180);
+      grp.width = Math.max((maxX - minX) + cfg.groupPadding * 2, 280);
+      grp.height = Math.max((maxY - minY) + cfg.groupPadding * 2 + headerOffset, 200);
       groupDimensions.set(grp.id, { width: grp.width, height: grp.height });
     });
 
-    // 3. PHASE 2: Build Global Meta-Graph (Nodes = Groups + Ungrouped Tasks)
+    // 3. Layout Meta-Graph (Zones + Ungrouped Nodes)
     interface MetaItem {
       id: string;
       isGroup: boolean;
@@ -158,32 +138,17 @@ export class WorkflowLayoutService {
     }
 
     const metaItems: MetaItem[] = [
-      ...clonedGroups.map(g => ({
-        id: g.id,
-        isGroup: true,
-        width: g.width!,
-        height: g.height!,
-        ref: g
-      })),
-      ...ungroupedNodes.map(n => ({
-        id: n.id,
-        isGroup: false,
-        width: n.width,
-        height: n.height,
-        ref: n
-      }))
+      ...clonedGroups.map(g => ({ id: g.id, isGroup: true, width: g.width!, height: g.height!, ref: g })),
+      ...ungroupedNodes.map(n => ({ id: n.id, isGroup: false, width: n.width, height: n.height, ref: n }))
     ];
 
-    // Map internal node ID -> MetaItem ID
     const nodeToMetaId = new Map<string, string>();
     clonedNodes.forEach(n => {
       nodeToMetaId.set(n.id, n.groupId && groupDimensions.has(n.groupId) ? n.groupId : n.id);
     });
 
-    // Translate global edges into inter-meta edges (filtering self-loops)
     const metaEdges: TaskEdge[] = [];
     const metaEdgeSet = new Set<string>();
-
     edges.forEach(e => {
       const srcMeta = nodeToMetaId.get(e.sourceId);
       const tgtMeta = nodeToMetaId.get(e.targetId);
@@ -196,29 +161,21 @@ export class WorkflowLayoutService {
       }
     });
 
-    // 4. PHASE 3: Layout Meta-Graph from Left to Right & Top to Down
-    const metaNodesAdapter: TaskNode[] = metaItems.map(m => ({
-      id: m.id,
-      width: m.width,
-      height: m.height
-    }));
-
-    this.layoutDagComponent(metaNodesAdapter, metaEdges, {
+    const metaNodesAdapter: TaskNode[] = metaItems.map(m => ({ id: m.id, width: m.width, height: m.height }));
+    this.layoutCognitiveTree(metaNodesAdapter, metaEdges, {
       gapX: cfg.groupGapX,
       gapY: cfg.groupGapY,
-      originX: 60,
-      originY: 60
+      originX: cfg.originX,
+      originY: cfg.originY
     });
 
-    // 5. PHASE 4: Apply Coordinates Back to Target Objects
+    // 4. Transform relative coordinates back to absolute coordinates
     metaNodesAdapter.forEach(layoutMeta => {
       const meta = metaItems.find(m => m.id === layoutMeta.id)!;
       if (meta.isGroup) {
         const grp = meta.ref as TaskGroup;
         grp.x = layoutMeta.x;
         grp.y = layoutMeta.y;
-
-        // Offset group children to absolute world coordinates
         const children = groupNodeMap.get(grp.id) || [];
         children.forEach(child => {
           child.x = (grp.x || 0) + (child.x || 0);
@@ -235,13 +192,13 @@ export class WorkflowLayoutService {
   }
 
   /**
-   * Core Sugiyama-Style Directed Acyclic Graph (DAG) 2D Layering Algorithm
-   * - Step A: Strict Topological Leveling along X-axis (Level(u) = max(Level(v)) + 1)
-   * - Step B: Column bucketing (Identical X for identical levels, distinct columns for successive levels)
-   * - Step C: Vertical Ordering within Columns (Top-to-Down Barycentric Heuristic to minimize edge crossings)
-   * - Step D: Coordinate Assignment with explicit non-zero buffers (nodeGapX, nodeGapY)
+   * Enhanced Cognitive Tree Algorithm:
+   * 1. Longest-Path Layering (X-Coordinates determined by dependency depth)
+   * 2. Connected Component Partitioning (Separate distinct thought clusters)
+   * 3. Forward & Backward Barycentric Centering (Align child Y with parent median Y)
+   * 4. Overlap Removal with Subtree Preservation
    */
-  private layoutDagComponent(
+  private layoutCognitiveTree(
     nodes: TaskNode[],
     edges: TaskEdge[],
     options: { gapX: number; gapY: number; originX: number; originY: number }
@@ -249,131 +206,177 @@ export class WorkflowLayoutService {
     if (nodes.length === 0) return { width: 0, height: 0 };
 
     const nodeMap = new Map<string, TaskNode>(nodes.map(n => [n.id, n]));
-    const inDegree = new Map<string, number>();
-    const outEdges = new Map<string, string[]>();
     const inEdges = new Map<string, string[]>();
+    const outEdges = new Map<string, string[]>();
 
     nodes.forEach(n => {
-      inDegree.set(n.id, 0);
-      outEdges.set(n.id, []);
       inEdges.set(n.id, []);
+      outEdges.set(n.id, []);
     });
 
     edges.forEach(e => {
       if (nodeMap.has(e.sourceId) && nodeMap.has(e.targetId)) {
         outEdges.get(e.sourceId)!.push(e.targetId);
         inEdges.get(e.targetId)!.push(e.sourceId);
-        inDegree.set(e.targetId, (inDegree.get(e.targetId) || 0) + 1);
       }
     });
 
-    // Step A: Strict Longest-Path Layering (Ranks / Levels along X-Axis)
-    // Level(u) = max_{(v, u) in E} (Level(v)) + 1, with roots at Level 0
+    // Phase 1: Assign Horizontal Topological Ranks (X-axis depth)
     const rankMap = new Map<string, number>();
-    const rootNodes = nodes.filter(n => (inDegree.get(n.id) || 0) === 0).map(n => n.id);
+    const roots = nodes.filter(n => (inEdges.get(n.id)?.length || 0) === 0);
 
-    // If all nodes have in-degree > 0 due to an external cycle fallback, select lowest in-degree
-    if (rootNodes.length === 0 && nodes.length > 0) {
-      let minDeg = Infinity;
-      let minId = nodes[0].id;
-      nodes.forEach(n => {
-        const deg = inDegree.get(n.id) || 0;
-        if (deg < minDeg) {
-          minDeg = deg;
-          minId = n.id;
-        }
-      });
-      rootNodes.push(minId);
+    // Fallback if full cycle exists
+    if (roots.length === 0 && nodes.length > 0) {
+      roots.push(nodes[0]);
     }
 
-    rootNodes.forEach(id => rankMap.set(id, 0));
+    roots.forEach(r => rankMap.set(r.id, 0));
 
-    // DFS / Longest-path traversal with cycle protection (max recursion depth = nodes.length)
-    const computeLongestPathRank = (currId: string, currentDepth: number, visitedPath: Set<string>) => {
-      if (currentDepth > nodes.length || visitedPath.has(currId)) return;
-      visitedPath.add(currId);
+    // Compute topological ranks via BFS / Longest-Path
+    const queue = [...roots.map(r => r.id)];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const currId = queue.shift()!;
+      visited.add(currId);
       const currRank = rankMap.get(currId) || 0;
 
       for (const nextId of outEdges.get(currId) || []) {
-        const currentNextRank = rankMap.get(nextId) ?? 0;
-        if (currRank + 1 > currentNextRank) {
+        const nextRank = rankMap.get(nextId) ?? -1;
+        if (currRank + 1 > nextRank) {
           rankMap.set(nextId, currRank + 1);
         }
-        computeLongestPathRank(nextId, currentDepth + 1, new Set(visitedPath));
+        if (!visited.has(nextId) && !queue.includes(nextId)) {
+          queue.push(nextId);
+        }
       }
-    };
+    }
 
-    rootNodes.forEach(id => computeLongestPathRank(id, 0, new Set()));
-
-    // Assign rank 0 to any remaining unranked nodes
+    // Default remaining unvisited nodes
     nodes.forEach(n => {
       if (!rankMap.has(n.id)) rankMap.set(n.id, 0);
     });
 
-    // Step B: Bucket Nodes by Rank into Vertical Columns (Levels)
+    // Phase 2: Compute X positions by column layer
     const maxRank = Math.max(...Array.from(rankMap.values()), 0);
     const layers: TaskNode[][] = Array.from({ length: maxRank + 1 }, () => []);
+    nodes.forEach(n => layers[rankMap.get(n.id)!].push(n));
 
-    nodes.forEach(n => {
-      const r = rankMap.get(n.id)!;
-      layers[r].push(n);
+    const layerXPositions: number[] = [];
+    let currentX = options.originX;
+
+    layers.forEach((layer, r) => {
+      layerXPositions[r] = currentX;
+      const maxColWidth = layer.reduce((max, n) => Math.max(max, n.width), DEFAULT_NODE_WIDTH);
+      currentX += maxColWidth + options.gapX;
     });
 
-    // Step C: Top-to-Down Slot Ordering within Columns (Barycentric Median Heuristic)
-    // Sibling nodes are ordered vertically near the median/average vertical position of their incoming predecessors
+    layers.forEach((layer, r) => {
+      layer.forEach(node => {
+        node.x = layerXPositions[r];
+      });
+    });
+
+    // Phase 3: Initial Vertical Stacking with Barycentric Pre-sort
+    let initialY = options.originY;
+    layers[0].forEach(rootNode => {
+      rootNode.y = initialY;
+      initialY += rootNode.height + options.gapY;
+    });
+
     for (let r = 1; r < layers.length; r++) {
-      const prevLayerOrder = new Map<string, number>();
-      layers[r - 1].forEach((n, idx) => prevLayerOrder.set(n.id, idx));
-
+      // Sort layer by median Y of parents
       layers[r].sort((a, b) => {
-        const aParents = inEdges.get(a.id) || [];
-        const bParents = inEdges.get(b.id) || [];
+        const aParents = (inEdges.get(a.id) || []).map(pId => nodeMap.get(pId)!).filter(Boolean);
+        const bParents = (inEdges.get(b.id) || []).map(pId => nodeMap.get(pId)!).filter(Boolean);
 
-        const aBary = aParents.length > 0
-          ? aParents.reduce((sum, pId) => sum + (prevLayerOrder.get(pId) ?? 0), 0) / aParents.length
-          : 0;
+        const aCenter = aParents.length > 0
+          ? aParents.reduce((sum, p) => sum + ((p.y || 0) + p.height / 2), 0) / aParents.length
+          : Infinity;
 
-        const bBary = bParents.length > 0
-          ? bParents.reduce((sum, pId) => sum + (prevLayerOrder.get(pId) ?? 0), 0) / bParents.length
-          : 0;
+        const bCenter = bParents.length > 0
+          ? bParents.reduce((sum, p) => sum + ((p.y || 0) + p.height / 2), 0) / bParents.length
+          : Infinity;
 
-        if (aBary !== bBary) {
-          return aBary - bBary;
-        }
-        // Deterministic secondary sort by title/id
-        return a.id.localeCompare(b.id);
+        return aCenter - bCenter;
+      });
+
+      // Initial sequential placement
+      let colY = options.originY;
+      layers[r].forEach(node => {
+        node.y = colY;
+        colY += node.height + options.gapY;
       });
     }
 
-    // Step D: Calculate Non-Overlapping Coordinates (Strict Straight Columns)
-    // Each column has a uniform X coordinate. Parallel forks are stacked with nodeGapY.
-    let currentX = options.originX;
-    let totalMaxY = 0;
-
-    layers.forEach(layer => {
-      if (layer.length === 0) return;
-
-      let layerMaxWidth = 0;
-      let currentY = options.originY;
-
-      layer.forEach(node => {
-        node.x = currentX;
-        node.y = currentY;
-
-        layerMaxWidth = Math.max(layerMaxWidth, node.width);
-        currentY += node.height + options.gapY;
+    // Phase 4: Two-Pass Centering (Aligning Child Centroids with Parents)
+    // Forward Pass (L -> R): Center children around parents
+    for (let r = 1; r < layers.length; r++) {
+      layers[r].forEach(node => {
+        const parents = (inEdges.get(node.id) || []).map(pId => nodeMap.get(pId)!).filter(Boolean);
+        if (parents.length > 0) {
+          const parentCenterY = parents.reduce((sum, p) => sum + ((p.y || 0) + p.height / 2), 0) / parents.length;
+          node.y = parentCenterY - node.height / 2;
+        }
       });
+      this.resolveLayerCollisions(layers[r], options.gapY, options.originY);
+    }
 
-      if (currentY > totalMaxY) {
-        totalMaxY = currentY;
-      }
+    // Backward Pass (R -> L): Re-center parents between their child forks
+    for (let r = layers.length - 2; r >= 0; r--) {
+      layers[r].forEach(node => {
+        const children = (outEdges.get(node.id) || []).map(cId => nodeMap.get(cId)!).filter(Boolean);
+        if (children.length > 0) {
+          const childCenterY = children.reduce((sum, c) => sum + ((c.y || 0) + c.height / 2), 0) / children.length;
+          node.y = childCenterY - node.height / 2;
+        }
+      });
+      this.resolveLayerCollisions(layers[r], options.gapY, options.originY);
+    }
 
-      currentX += layerMaxWidth + options.gapX;
+    // Normalize to originY so diagram never shifts off-screen
+    let minY = Infinity;
+    let maxY = -Infinity;
+    nodes.forEach(n => {
+      minY = Math.min(minY, n.y || options.originY);
+      maxY = Math.max(maxY, (n.y || options.originY) + n.height);
+    });
+
+    const shiftY = options.originY - minY;
+    nodes.forEach(n => {
+      n.y = (n.y || options.originY) + shiftY;
     });
 
     return {
-      width: Math.max(currentX - options.originX - options.gapX, 0),
-      height: Math.max(totalMaxY - options.originY - options.gapY, 0)
+      width: currentX - options.originX,
+      height: (maxY + shiftY) - options.originY
     };
+  }
+
+  /**
+   * Enforces minimum nodeGapY between adjacent vertical nodes
+   * without destroying their relative alignment.
+   */
+  private resolveLayerCollisions(layer: TaskNode[], gapY: number, minY: number): void {
+    if (layer.length <= 1) return;
+
+    // Ensure sorted strictly by current Y
+    layer.sort((a, b) => (a.y || 0) - (b.y || 0));
+
+    // Downward push
+    for (let i = 1; i < layer.length; i++) {
+      const prev = layer[i - 1];
+      const curr = layer[i];
+      const requiredY = (prev.y || 0) + prev.height + gapY;
+      if ((curr.y || 0) < requiredY) {
+        curr.y = requiredY;
+      }
+    }
+
+    // Upward bound guard
+    if ((layer[0].y || 0) < minY) {
+      const offset = minY - (layer[0].y || 0);
+      layer.forEach(n => n.y = (n.y || 0) + offset);
+    }
   }
 }

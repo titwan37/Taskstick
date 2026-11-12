@@ -39,6 +39,7 @@ export interface ConnectorPort {
         <path
           [attr.d]="computeBezierPath(edge)"
           class="edge-path"
+          [class.is-critical-flow]="isCriticalEdge(edge)"
           [attr.data-type]="edge.type"
           [attr.marker-end]="getMarkerEnd(edge.type)"
           (click)="onEdgeClick(edge, $event)"
@@ -107,6 +108,19 @@ export interface ConnectorPort {
       stroke-width: 2.5px;
       stroke-dasharray: 4, 4;
     }
+
+    .edge-path.is-critical-flow {
+      stroke-width: 4px !important;
+      stroke-dasharray: 10, 6 !important;
+      animation: criticalFlowPulse 0.9s linear infinite;
+      filter: drop-shadow(0 0 6px rgba(244, 63, 94, 0.75));
+    }
+
+    @keyframes criticalFlowPulse {
+      from { stroke-dashoffset: 32; }
+      to   { stroke-dashoffset: 0; }
+    }
+
   `]
 })
 export class SvgConnectionLayerComponent {
@@ -159,5 +173,14 @@ export class SvgConnectionLayerComponent {
       this.store.deleteEdge(edge.id);
       this.edgeDeleted.emit(edge.id);
     }
+  }
+
+  isCriticalEdge(edge: PostItEdge): boolean {
+    const rootNotes = this.store.rootActionableNotes();
+    const topStart = rootNotes.length > 0 ? rootNotes[0] : null;
+    const focusNote = this.store.activeFocusNote();
+    const activeId = focusNote?.id || topStart?.id;
+    if (!activeId) return false;
+    return edge.sourceId === activeId || edge.targetId === activeId;
   }
 }

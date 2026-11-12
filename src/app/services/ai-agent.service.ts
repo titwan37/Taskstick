@@ -1,8 +1,17 @@
 // src/app/services/ai-agent.service.ts
 import { Injectable } from '@angular/core';
-import { ADHDPostItNote, PostItEdge, PostItColor } from '../models/taskstick-graph.model';
 import { TaskstickStoreService } from './taskstick-store.service';
 import { TranslationWorkerRequest, TranslationWorkerResponse } from '../workers/translation.worker';
+import {
+  ADHDPostItNote,
+  PostItEdge,
+  PostItColor,
+  PostItNature,
+  PostItComplexity, 
+  ParalysisEnemyType,
+  CognitiveLoad,
+  RelationType
+} from '../models/taskstick-graph.model';
 
 export const DEFAULT_OLLAMA_ENDPOINT = 'http://127.0.0.1:11434';
 export const SERVER_DEFAULT_MODEL = 'qwen3:1.7b';
@@ -37,6 +46,26 @@ export interface OllamaModelInfo {
   endpoint: string;
   models: string[];
   selectedModel: string;
+}
+
+
+
+export interface GhostNodePrediction {
+  title: string;
+  nature: PostItNature;
+  relationToSource: RelationType;
+  estimatedMinutes: number;
+  color: PostItColor;
+}
+
+export interface AutoTriageResult {
+  cleanTitle: string;
+  nature: PostItNature;
+  complexity: PostItComplexity;
+  cognitiveLoad: CognitiveLoad;
+  estimatedMinutes: number;
+  suggestedColor: PostItColor;
+  tags: string[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -150,6 +179,88 @@ export class AiAgentService {
       selectedModel: this.selectedModel,
     };
   }
+
+    // Inside AiAgentService (src/app/services/ai-agent.service.ts)
+    async diagnoseParalysisAndIgnite(note: ADHDPostItNote, upstreamTitles: string[], downstreamTitles: string[]): Promise<{
+      enemyType: ParalysisEnemyType;
+      enemyName: string;
+      ignitionStep: string;
+      microSteps: string[];
+    }> {
+      const prompt = `
+    Task Title: "${note.title}"
+    Details: "${note.content || 'None'}"
+    Upstream Prerequisites: ${upstreamTitles.join(', ') || 'None'}
+    Downstream Dependents Unlocked (${downstreamTitles.length}): ${downstreamTitles.join(', ') || 'None'}
+
+    Diagnose why an AuDHD engineer would stall on this node. Nominate the Enemy, give a <=2 min physical Ignition Step, and 3 micro-steps. Respond in JSON.`;
+
+      const raw = await this.generateCompletion(prompt); // Uses your existing Ollama fetch pipeline
+      if (!raw) {
+        throw new Error('No completion returned from AI engine');
+      }
+      try {
+        const cleanJson = raw.replace(/```json|```/g, '').trim();
+        return JSON.parse(cleanJson);
+      } catch {
+        return {
+          enemyType: 'AMBIGUITY_FOG',
+          enemyName: 'Point d’entrée flou',
+          ignitionStep: `Ouvrir le fichier lié à "${note.title}" et écrire un commentaire TODO de 1 ligne.`,
+          microSteps: ['Définir l’entrée/sortie attendue', 'Coder le cas minimal', 'Valider et cocher']
+        };
+      }
+    }
+
+        /**
+     * High-speed structured JSON inference optimized for qwen3:1.7b.
+     * Uses `think: false` and strict JSON Schema grammar enforcement for <250ms latency.
+     */
+    async generateStructuredFast<T>(
+      userPrompt: string,
+      jsonSchema: Record<string, any>,
+      systemPrompt = 'Tu es le copilote cognitif temps-réel de Taskstick. Réponds strictement en JSON.'
+    ): Promise<T | null> {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const res = await fetch(`${this.ollamaEndpoint}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.selectedModel, // 'qwen3:1.7b'
+            messages: [
+              { role: 'system', content: systemPrompt },
+              // Prepend /no_think to guarantee instant non-reasoning output on Qwen3
+              { role: 'user', content: `/no_think\n${userPrompt}` }
+            ],
+            stream: false,
+            think: false,
+            format: jsonSchema,
+            options: {
+              temperature: 0.2,
+              num_ctx: 2048,     // Small context window = ultra-fast KV cache on GPU/CPU
+              num_predict: 256
+            }
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          const raw = data?.message?.content;
+          if (raw) {
+            return JSON.parse(raw) as T;
+          }
+        }
+      } catch (e) {
+        console.warn('[AiAgent FastStructured] Fallback triggered:', e);
+      }
+      return null;
+    }
+
 
   /**
    * Generates completion using Ollama /api/chat with fallback to heuristic logic
@@ -519,9 +630,9 @@ Réponds UNIQUEMENT sous la forme d'une liste de 3 ou 4 lignes commençant par u
       const clusterContext = clusterNotes.slice(0, 3).map(c => c.title).join(', ');
 
       const prompt = `Propose une description d'action courte et motivante (1 à 2 phrases) pour ce Post-it :
-Titre : "${targetNote.title}"
-${prereqContext ? `Prérequis : ${prereqContext}\n` : ''}${depContext ? `Débloque ensuite : ${depContext}\n` : ''}${clusterContext ? `Contexte : ${clusterContext}\n` : ''}
-Consigne : Rédige directement la description sans formules de politesse ni titre.`;
+      Titre : "${targetNote.title}"
+      ${prereqContext ? `Prérequis : ${prereqContext}\n` : ''}${depContext ? `Débloque ensuite : ${depContext}\n` : ''}${clusterContext ? `Contexte : ${clusterContext}\n` : ''}
+      Consigne : Rédige directement la description sans formules de politesse ni titre.`;
 
       const aiDesc = await this.generateCompletion(prompt);
       if (aiDesc && aiDesc.length > 10) {

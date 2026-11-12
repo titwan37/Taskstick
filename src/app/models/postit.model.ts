@@ -3,6 +3,7 @@ import { MultiLanguageContent } from '../editor/editor.component';
 
 export type PostItColor = 'yellow' | 'pink' | 'blue' | 'green' | 'purple' | 'orange';
 
+
 /**
  * Functional nature / archetype of a Post-it note:
  * - 'theme': Umbrella container, high-level subject or epic
@@ -81,3 +82,5 @@ export interface IdeationWallFilter {
   selectedTag?: string | 'all';
   searchQuery?: string;
 }
+
+

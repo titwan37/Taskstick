@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { TaskstickStoreService } from '../services/taskstick-store.service';
 import { FocusSpotlightComponent } from '../dashboard/focus-spotlight.component';
 import { ADHDPostItNote, CognitiveLoad } from '../models/taskstick-graph.model';
+import { GoogleCalendarSyncService } from '../services/google-calendar-sync.service';
 
 export interface DayColumn {
   dayOfWeek: 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -28,6 +29,7 @@ export interface CascadingGroup {
   nextPlannableTask: ADHDPostItNote | null;
   firstUndoneTask: ADHDPostItNote | null;
 }
+
 
 @Component({
   selector: 'app-weekly-planner',
@@ -261,6 +263,22 @@ export interface CascadingGroup {
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="gcal-sync-bar">
+        <button
+          type="button"
+          class="tool-btn gcal-btn"
+          [disabled]="gcalSync.isSyncing()"
+          (click)="gcalSync.authenticateAndSync()">
+          <span *ngIf="!gcalSync.accessToken()">🔗 Connecter Google Calendar</span>
+          <span *ngIf="gcalSync.accessToken() && !gcalSync.isSyncing()">🔄 Sync Google Calendar</span>
+          <span *ngIf="gcalSync.isSyncing()">⏳ Synchronisation...</span>
+        </button>
+
+        <span class="sync-status-pill" *ngIf="gcalSync.lastSyncMessage()">
+          {{ gcalSync.lastSyncMessage() }}
+        </span>
       </div>
 
       <!-- Spotlight Modal Overlay -->
@@ -920,6 +938,7 @@ export class WeeklyPlannerComponent {
   @Input() dark = true;
 
   store = inject(TaskstickStoreService);
+  gcalSync = inject(GoogleCalendarSyncService);
 
   mobileActiveView: 'backlog' | 'calendar' = 'backlog';
   selectedFocusTask: ADHDPostItNote | null = null;

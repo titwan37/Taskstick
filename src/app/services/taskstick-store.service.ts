@@ -1446,4 +1446,85 @@ export class TaskstickStoreService {
     const d = new Date();
     return d.toISOString().slice(0, 10).replace(/-/g, '');
   }
+
+  /**
+   * Automatically calculates a clean, non-overlapping Left-to-Right cognitive tree
+   * for all notes on the canvas, aligning child forks to parent centers.
+   */
+  async autoAlignCognitiveTree(): Promise<void> {
+    const currentNotes = this.notes();
+    const currentEdges = this.edges();
+    const currentZones = this.zones();
+
+    if (currentNotes.length === 0) return;
+
+    // Snapshot before modifying coordinates for undo support
+    this.recordSnapshot();
+
+    const taskNodes: TaskNode[] = currentNotes.map(n => ({
+      id: n.id,
+      width: n.size?.width || (this.isThemaNote(n) ? 260 : 210),
+      height: n.size?.height || (this.isThemaNote(n) ? 180 : 160),
+      groupId: n.zoneId || undefined,
+      x: n.position.x,
+      y: n.position.y
+    }));
+
+    const taskEdges: TaskEdge[] = currentEdges.map(e => ({
+      id: e.id,
+      sourceId: e.sourceId,
+      targetId: e.targetId
+    }));
+
+    const taskGroups: TaskGroup[] = currentZones.map(z => ({
+      id: z.id,
+      label: z.label,
+      x: z.bounds.x,
+      y: z.bounds.y,
+      width: z.bounds.width,
+      height: z.bounds.height
+    }));
+
+    const result = this.workflowLayout.optimizeLayout(taskNodes, taskEdges, taskGroups, {
+      nodeGapX: 120,
+      nodeGapY: 50,
+      originX: 100,
+      originY: 100
+    });
+
+    // Re-map computed coordinates back to ADHDPostItNote signals
+    const positionMap = new Map(result.nodes.map(n => [n.id, { x: n.x || 0, y: n.y || 0 }]));
+    const updatedNotes = currentNotes.map(note => {
+      const newPos = positionMap.get(note.id);
+      return newPos ? { ...note, position: { x: Math.round(newPos.x), y: Math.round(newPos.y) }, updatedAt: Date.now() } : note;
+    });
+
+    const updatedZones = currentZones.map(zone => {
+      const groupPos = result.groups.find(g => g.id === zone.id);
+      return groupPos ? {
+        ...zone,
+        bounds: {
+          x: Math.round(groupPos.x || 0),
+          y: Math.round(groupPos.y || 0),
+          width: Math.round(groupPos.width || 280),
+          height: Math.round(groupPos.height || 200)
+        }
+      } : zone;
+    });
+
+    await this.db.notes.bulkPut(updatedNotes);
+    if (updatedZones.length > 0) {
+      await this.db.zones.bulkPut(updatedZones);
+    }
+
+    this.notes.set(this.recalculateBlockedFlags(updatedNotes, currentEdges));
+    this.zones.set(updatedZones);
+  }
+
+
+
+
+
 }
+
+

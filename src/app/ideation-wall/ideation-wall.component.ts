@@ -6,9 +6,9 @@ import { TaskstickStoreService } from '../services/taskstick-store.service';
 import { PostItNodeComponent } from './post-it-node.component';
 import { SvgConnectionLayerComponent } from './svg-connection-layer.component';
 import { PostItContextMenuComponent } from './post-it-context-menu.component';
-import { ADHDPostItNote, PostItColor, WhiteboardZone } from '../models/taskstick-graph.model';
+import { ADHDPostItNote, PostItColor, PostItNature, RelationType, WhiteboardZone } from '../models/taskstick-graph.model';
 import { SpeechRecognitionService } from '../services/speech-recognition.service';
-import { AiAgentService } from '../services/ai-agent.service';
+import { AiAgentService, AutoTriageResult, GhostNodePrediction } from '../services/ai-agent.service';
 
 @Component({
   selector: 'app-ideation-wall',
@@ -1284,6 +1284,122 @@ export class IdeationWallComponent implements OnInit, OnDestroy {
 
     this.quickInputText = '';
   }
+
+  async autoTriageRawThought(rawInput: string): Promise<AutoTriageResult | null> {
+      const schema = {
+        type: 'object',
+        properties: {
+          cleanTitle: { type: 'string' },
+          nature: { type: 'string', enum: ['theme', 'pivot', 'action'] },
+          complexity: { type: 'string', enum: ['simple', 'medium', 'complex', 'epic'] },
+          cognitiveLoad: { type: 'string', enum: ['low', 'medium', 'high'] },
+          estimatedMinutes: { type: 'integer', enum: [5, 10, 15, 25, 45, 60] },
+          suggestedColor: { type: 'string', enum: ['yellow', 'pink', 'blue', 'green', 'purple', 'orange'] },
+          tags: { type: 'array', items: { type: 'string' } }
+        },
+        required: ['cleanTitle', 'nature', 'complexity', 'cognitiveLoad', 'estimatedMinutes', 'suggestedColor', 'tags']
+      };
+
+      const prompt = `Analyse cette note jetée sur un mur d'idéation TDAH : "${rawInput}"
+    Règles :
+    - Si c'est un grand sujet global sans verbe d'action -> nature='theme', color='purple'
+    - Si c'est un jalon, une décision ou une validation -> nature='pivot', color='orange'
+    - Si c'est une action concrète -> nature='action', reformule cleanTitle avec un verbe d'action précis.`;
+
+      return this.aiAgent.generateStructuredFast<AutoTriageResult>(prompt, schema);
+    }
+
+
+    async predictNextGhostNodes(
+  sourceNote: ADHDPostItNote,
+  store: TaskstickStoreService
+): Promise<GhostNodePrediction[]> {
+  // Extract 1-hop local context (keeps prompt tiny and fast for 1.7B)
+  const allEdges = store.edges();
+  const allNotes = store.notes();
+  const upstreamTitles = allEdges
+    .filter(e => e.targetId === sourceNote.id)
+    .map(e => allNotes.find(n => n.id === e.sourceId)?.title)
+    .filter(Boolean);
+
+  const schema = {
+    type: 'object',
+    properties: {
+      predictions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            nature: { type: 'string', enum: ['pivot', 'action'] },
+            relationToSource: { type: 'string', enum: ['depends_on', 'constrains', 'synergy'] },
+            estimatedMinutes: { type: 'integer', enum: [5, 10, 15, 20] },
+            color: { type: 'string', enum: ['yellow', 'blue', 'green', 'pink', 'orange'] }
+          },
+          required: ['title', 'nature', 'relationToSource', 'estimatedMinutes', 'color']
+        }
+      }
+    },
+    required: ['predictions']
+  };
+
+  const prompt = `Contexte amont : ${upstreamTitles.join(' -> ') || 'Racine'}
+Noeud actuel (${sourceNote.nature || 'action'}) : "${sourceNote.title}"
+Détails : "${sourceNote.content || ''}"
+
+Propose exactement 3 suites logiques complémentaires :
+1. L'action immédiate suivante (depends_on, <= 15 min)
+2. Une action parallèle ou de synergie (synergy)
+3. Un point de contrôle / jalon ou risque à vérifier (pivot / constrains)`;
+
+    const res = await this.aiAgent.generateStructuredFast<{ predictions: GhostNodePrediction[] }>(prompt, schema);
+    return res?.predictions || [];
+  }
+
+async brainDumpToSubgraph(spokenText: string): Promise<{
+  nodes: Array<{ tempId: string; title: string; nature: PostItNature; estimatedMinutes: number }>;
+  edges: Array<{ fromTempId: string; toTempId: string; type: RelationType }>;
+} | null> {
+  const schema = {
+    type: 'object',
+    properties: {
+      nodes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            tempId: { type: 'string' },
+            title: { type: 'string' },
+            nature: { type: 'string', enum: ['theme', 'pivot', 'action'] },
+            estimatedMinutes: { type: 'integer' }
+          },
+          required: ['tempId', 'title', 'nature', 'estimatedMinutes']
+        }
+      },
+      edges: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            fromTempId: { type: 'string' },
+            toTempId: { type: 'string' },
+            type: { type: 'string', enum: ['depends_on', 'constrains', 'synergy', 'parent_of'] }
+          },
+          required: ['fromTempId', 'toTempId', 'type']
+        }
+      }
+    },
+    required: ['nodes', 'edges']
+  };
+
+      const prompt = `Transforme ce flux de pensée dicté en un graphe de tâches structuré (3 à 6 noeuds max) :
+    "${spokenText}"
+    Utilise tempId ("n1", "n2"...) pour relier les dépendances logiques de gauche à droite.`;
+
+      return this.aiAgent.generateStructuredFast(prompt, schema);
+    }
+
+
 
   onCanvasDblClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
