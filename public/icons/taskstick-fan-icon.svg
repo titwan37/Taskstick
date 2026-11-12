@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Squircle Gradient -->
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E1B4B" />
+    </linearGradient>
+
+    <!-- Post-it Drop Shadow -->
+    <filter id="note-shadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+
+    <!-- Task Badge Glow -->
+    <filter id="badge-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#10B981" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <!-- Squircle App Container -->
+  <!-- <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bg-grad)" stroke="#334155" stroke-width="4" />
+  <rect x="30" y="30" width="452" height="452" rx="90" fill="none" stroke="#6366F1" stroke-width="2" stroke-opacity="0.25" /> -->
+
+  <!-- ==================== "FAN" + "STICK" + "TASK" ==================== -->
+  <g transform="translate(256, 276)">
+    
+    <!-- 1. LEFT NOTE: "FAN" Cascade (Sky Cyan #38BDF8 at -20 deg) -->
+    <g transform="rotate(-20) translate(-100, -100)" filter="url(#note-shadow)">
+      <rect x="0" y="0" width="200" height="200" rx="18" fill="#38BDF8" />
+      <rect x="0" y="0" width="200" height="26" rx="6" fill="#7DD3FC" fill-opacity="0.75" />
+      <!-- Subtask lines -->
+      <rect x="24" y="55" width="152" height="7" rx="3.5" fill="#0369A1" fill-opacity="0.3" />
+      <rect x="24" y="80" width="110" height="7" rx="3.5" fill="#0369A1" fill-opacity="0.3" />
+      <rect x="24" y="105" width="130" height="7" rx="3.5" fill="#0369A1" fill-opacity="0.3" />
+    </g>
+
+    <!-- 2. RIGHT NOTE: "FAN" Cascade (Coral Rose #FB7185 at +20 deg) -->
+    <g transform="rotate(20) translate(-100, -100)" filter="url(#note-shadow)">
+      <rect x="0" y="0" width="200" height="200" rx="18" fill="#FB7185" />
+      <rect x="0" y="0" width="200" height="26" rx="6" fill="#FDA4AF" fill-opacity="0.75" />
+      <!-- Subtask lines -->
+      <rect x="24" y="55" width="152" height="7" rx="3.5" fill="#9F1239" fill-opacity="0.3" />
+      <rect x="24" y="80" width="120" height="7" rx="3.5" fill="#9F1239" fill-opacity="0.3" />
+      <rect x="24" y="105" width="90" height="7" rx="3.5" fill="#9F1239" fill-opacity="0.3" />
+    </g>
+
+    <!-- 3. CENTER NOTE: "STICK" Tactile Paper (Golden Amber #FBBF24) -->
+    <g transform="translate(-105, -88)" filter="url(#note-shadow)">
+      <!-- Main note body with bottom-right dog-ear fold -->
+      <path d="M 18,0 L 192,0 A 18,18 0 0 1 210,18 L 210,165 L 165,210 L 18,210 A 18,18 0 0 1 0,192 L 0,18 A 18,18 0 0 1 18,0 Z" fill="#FBBF24" />
+      <!-- Top adhesive strip ("Stick") -->
+      <path d="M 0,18 A 18,18 0 0 1 18,0 L 192,0 A 18,18 0 0 1 210,18 L 210,26 L 0,26 Z" fill="#FDE68A" fill-opacity="0.85" />
+      
+      <!-- Dog-ear fold flap -->
+      <path d="M 165,210 L 165,175 A 10,10 0 0 1 175,165 L 210,165 Z" fill="#D97706" />
+      <path d="M 165,210 L 210,165 L 165,165 Z" fill="#FEF3C7" fill-opacity="0.9" />
+
+      <!-- 4. "TASK": Completion Badge (Emerald Green + Bold Checkmark) -->
+      <g transform="translate(105, 115)" filter="url(#badge-glow)">
+        <circle cx="0" cy="0" r="38" fill="#10B981" stroke="#FFFFFF" stroke-width="4.5" />
+        <path d="M -16,0 L -4,13 L 17,-12" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+      </g>
+    </g>
+
+  </g>
+</svg>

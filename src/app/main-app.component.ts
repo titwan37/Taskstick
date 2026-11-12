@@ -1,12 +1,17 @@
 // src/app/main-app.component.ts
-import { Component, HostBinding, OnInit, ChangeDetectorRef, ElementRef, Renderer2 } from '@angular/core';
+import { Component, HostBinding, OnInit, ChangeDetectorRef, ElementRef, Renderer2, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AngularSplitModule } from 'angular-split';
 import { EditorComponent } from './editor/editor.component';
 import { AiPanelComponent } from './ai-panel/ai-panel.component';
 import { DateSelectorComponent } from './date-selector/date-selector.component';
 import { VisualizerComponent } from './visualizer/visualizer.component';
+import { IdeationWallComponent } from './ideation-wall/ideation-wall.component';
+import { WeeklyPlannerComponent } from './task-manager/weekly-planner.component';
+import { DashboardComponent } from './dashboard/dashboard.component';
 import { StorageService } from './services/storage.service';
+import { TaskstickStoreService } from './services/taskstick-store.service';
+import { StorageMigrationAdapter } from './services/storage-migration.adapter';
 import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
@@ -19,7 +24,10 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
     EditorComponent,
     VisualizerComponent,
     AiPanelComponent,
-    DateSelectorComponent
+    DateSelectorComponent,
+    IdeationWallComponent,
+    WeeklyPlannerComponent,
+    DashboardComponent
   ],
   template: `
     <header class="header">
@@ -31,14 +39,25 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       <div class="logo-img" *ngIf="logoSvg" [innerHTML]="logoSvg"></div>
       <div class="brand">
         <span class="logo">Taskstick</span>
-        <span class="version">v1.2.0</span>
+        <span class="version">v2.1</span>
       </div>
-      <div class="center-group">
-        <button (click)="editorVisible = !editorVisible" class="header-btn" [class.active]="editorVisible">
-          {{editorVisible ? '⬅️ Editor' : 'Editor ➡️'}}
+
+      <!-- Navigation Multi-Zones v2.1 -->
+      <div class="nav-group">
+        <button class="nav-tab" [class.active]="activeZone() === 'wall'" (click)="activeZone.set('wall')">
+          🎨 Mur à Idées
         </button>
-        <span class="header-emoji">📝</span>
-      </div>      
+        <button class="nav-tab" [class.active]="activeZone() === 'tasks'" (click)="activeZone.set('tasks')">
+          ✅ Tâches & Agenda
+        </button>
+        <button class="nav-tab" [class.active]="activeZone() === 'dashboard'" (click)="activeZone.set('dashboard')">
+          📊 Dashboard
+        </button>
+        <button class="nav-tab" [class.active]="activeZone() === 'legacy_studio'" (click)="activeZone.set('legacy_studio')">
+          🧪 Studio Mermaid
+        </button>
+      </div>
+
       <div class="right-group">
         <button (click)="loadFromDrive()" class="header-btn"><span class="btn-icon">📤</span> Load</button>
         <button (click)="saveToDatabase()" class="header-btn"><span class="btn-icon">💾</span> Save to DB</button>
@@ -48,107 +67,128 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       <div class="header-divider"></div>
       <!-- The Separator -->
       <div class="right-group">
-        <button (click)="aiVisible = !aiVisible" class="header-btn" [class.active]="aiVisible">
-          {{aiVisible ? 'Tasks ➡️' : '⬅️ Tasks'}}
-        </button>
-        <span class="header-emoji">📝</span>
         <app-date-selector (dateChange)="loadDate($event)"></app-date-selector>
       </div>
     </header>
 
     <main class="layout">
-      <as-split direction="horizontal" unit="pixel" gutterSize="4">
-        
-        <!-- LEFT: EDITOR -->
-        <as-split-area [size]="300" [minSize]="220" *ngIf="editorVisible">
-          <section class="pane">
-            <div class="pane-header">Editor</div>
-            <app-editor [dark]="dark" [content]="diagram" (contentChange)="onDiagramChange($event)"></app-editor>
-          </section>
-        </as-split-area>
-        
-        <!-- CENTER: VISUALIZERS -->
-        <as-split-area [size]="'*'">
-          <!-- New Flex Wrapper -->
-          <div class="viz-wrapper">
-            
-            <!-- Top View Menu Bar (Fixed) -->
-            <div class="viz-layout-header">
-              <span class="viz-layout-label">Grid:</span>
-              <button [class.active]="vizLayout === 'split'" (click)="vizLayout = 'split'">Two</button>
-              <button [class.active]="vizLayout === 'grid'" (click)="vizLayout = 'grid'">Three</button>
-              <span class="viz-layout-label"></span>
-              <span class="viz-layout-label"></span>
-              <span class="viz-layout-label"></span>
-              <span class="viz-layout-label">Single View:</span>
-              <button [class.active]="vizLayout === 'ishikawa'" (click)="vizLayout = 'ishikawa'">Fishbone</button>
-              <button [class.active]="vizLayout === 'mindmap'" (click)="vizLayout = 'mindmap'">Mindmap</button>
-              <button [class.active]="vizLayout === 'kanban'" (click)="vizLayout = 'kanban'">Kanban</button>
-            </div>
+      <!-- ZONE 1: Mur à Idées (Ideation Wall) -->
+      <div class="zone-view" *ngIf="activeZone() === 'wall'">
+        <app-ideation-wall [dark]="dark"></app-ideation-wall>
+      </div>
 
-            <!-- Scroll-Free Split Container -->
-            <div class="viz-split-container">
-              <as-split direction="vertical" gutterSize="4">
-                
-                <!-- ROW 1: TILES -->
-                <as-split-area 
-                  [size]="vizLayout === 'grid' ? 50 : 100" 
-                  *ngIf="['grid', 'ishikawa', 'kanban', 'split'].includes(vizLayout)">
-                  <as-split direction="horizontal" gutterSize="4">
-                    <as-split-area 
-                      [size]="vizLayout === 'ishikawa' ? 100 : 50" 
-                      *ngIf="['grid', 'ishikawa', 'split'].includes(vizLayout)">
-                      <div class="viz-container">
-                        <h4 class="viz-title">Fishbone Analysis</h4>
-                        <app-visualizer [dark]="dark" [diagram]="diagram" mode="ishikawa"></app-visualizer>
-                      </div>
-                    </as-split-area>
-                    <as-split-area 
-                      [size]="vizLayout === 'kanban' ? 100 : 50" 
-                      *ngIf="['grid', 'kanban', 'split'].includes(vizLayout)">
-                      <div class="viz-container">
-                        <h4 class="viz-title">Kanban Board</h4>
-                        <app-visualizer [dark]="dark" [diagram]="diagram" mode="kanban"></app-visualizer>
-                      </div>
-                    </as-split-area>
-                  </as-split>
-                </as-split-area>
+      <!-- ZONE 2: Tâches & Agenda (Weekly Planner) -->
+      <div class="zone-view" *ngIf="activeZone() === 'tasks'">
+        <app-weekly-planner [dark]="dark"></app-weekly-planner>
+      </div>
 
-                <!-- ROW 2: FULL -->
-                <as-split-area 
-                  [size]="vizLayout === 'mindmap' ? 100 : 50" 
-                  *ngIf="vizLayout === 'grid' || vizLayout === 'mindmap'">
-                  <div class="viz-container">
-                    <h4 class="viz-title">Strategic Mindmap</h4>
-                    <app-visualizer [dark]="dark" [diagram]="diagram" mode="mindmap"></app-visualizer>
-                  </div>
-                </as-split-area>
+      <!-- ZONE 3: Dashboard & Focus -->
+      <div class="zone-view" *ngIf="activeZone() === 'dashboard'">
+        <app-dashboard [dark]="dark"></app-dashboard>
+      </div>
 
-              </as-split>
-            </div>
-          </div>
-        </as-split-area>
- 
-        <!-- RIGHT: AI PANEL -->
-        <as-split-area [size]="450" [minSize]="200" *ngIf="aiVisible">
-          <section class="pane">
+      <!-- ZONE 4: Studio Mermaid (Expert) -->
+      <div class="zone-view legacy-studio-view" *ngIf="activeZone() === 'legacy_studio'">
+        <div class="legacy-studio-toolbar">
+          <button (click)="editorVisible = !editorVisible" class="header-btn" [class.active]="editorVisible">
+            {{editorVisible ? '⬅️ Masquer Éditeur' : 'Afficher Éditeur ➡️'}}
+          </button>
+          <button (click)="aiVisible = !aiVisible" class="header-btn" [class.active]="aiVisible">
+            {{aiVisible ? 'Masquer AI Panel' : 'Afficher AI Panel'}}
+          </button>
+        </div>
+        <as-split direction="horizontal" unit="pixel" gutterSize="4">
+          
+          <!-- LEFT: EDITOR -->
+          <as-split-area [size]="300" [minSize]="220" *ngIf="editorVisible">
             <section class="pane">
-              <div class="pane-header">Instructions:</div>
-              <div class="whats-changed">
-                <ol>
-                  <li>task: <i> Create a Trello Card </i></li>
-                  <li>email: <i> Create a Gmail Draft </i></li>
-                  <li>event: <i> Create a Google Calendar Event </i></li>
-                </ol>
-              </div>
-              <div class="pane-header">AI Insights</div>
-              <app-ai-panel [diagram]="diagram"></app-ai-panel>
+              <div class="pane-header">Editor</div>
+              <app-editor [dark]="dark" [content]="diagram" (contentChange)="onDiagramChange($event)"></app-editor>
             </section>
- 
-          </section>
-        </as-split-area>
- 
-      </as-split>
+          </as-split-area>
+          
+          <!-- CENTER: VISUALIZERS -->
+          <as-split-area [size]="'*'">
+            <!-- New Flex Wrapper -->
+            <div class="viz-wrapper">
+              
+              <!-- Top View Menu Bar (Fixed) -->
+              <div class="viz-layout-header">
+                <span class="viz-layout-label">Grid:</span>
+                <button [class.active]="vizLayout === 'split'" (click)="vizLayout = 'split'">Two</button>
+                <button [class.active]="vizLayout === 'grid'" (click)="vizLayout = 'grid'">Three</button>
+                <span class="viz-layout-label"></span>
+                <span class="viz-layout-label"></span>
+                <span class="viz-layout-label"></span>
+                <span class="viz-layout-label">Single View:</span>
+                <button [class.active]="vizLayout === 'ishikawa'" (click)="vizLayout = 'ishikawa'">Fishbone</button>
+                <button [class.active]="vizLayout === 'mindmap'" (click)="vizLayout = 'mindmap'">Mindmap</button>
+                <button [class.active]="vizLayout === 'kanban'" (click)="vizLayout = 'kanban'">Kanban</button>
+              </div>
+
+              <!-- Scroll-Free Split Container -->
+              <div class="viz-split-container">
+                <as-split direction="vertical" gutterSize="4">
+                  
+                  <!-- ROW 1: TILES -->
+                  <as-split-area 
+                    [size]="vizLayout === 'grid' ? 50 : 100" 
+                    *ngIf="['grid', 'ishikawa', 'kanban', 'split'].includes(vizLayout)">
+                    <as-split direction="horizontal" gutterSize="4">
+                      <as-split-area 
+                        [size]="vizLayout === 'ishikawa' ? 100 : 50" 
+                        *ngIf="['grid', 'ishikawa', 'split'].includes(vizLayout)">
+                        <div class="viz-container">
+                          <h4 class="viz-title">Fishbone Analysis</h4>
+                          <app-visualizer [dark]="dark" [diagram]="diagram" mode="ishikawa"></app-visualizer>
+                        </div>
+                      </as-split-area>
+                      <as-split-area 
+                        [size]="vizLayout === 'kanban' ? 100 : 50" 
+                        *ngIf="['grid', 'kanban', 'split'].includes(vizLayout)">
+                        <div class="viz-container">
+                          <h4 class="viz-title">Kanban Board</h4>
+                          <app-visualizer [dark]="dark" [diagram]="diagram" mode="kanban"></app-visualizer>
+                        </div>
+                      </as-split-area>
+                    </as-split>
+                  </as-split-area>
+
+                  <!-- ROW 2: FULL -->
+                  <as-split-area 
+                    [size]="vizLayout === 'mindmap' ? 100 : 50" 
+                    *ngIf="vizLayout === 'grid' || vizLayout === 'mindmap'">
+                    <div class="viz-container">
+                      <h4 class="viz-title">Strategic Mindmap</h4>
+                      <app-visualizer [dark]="dark" [diagram]="diagram" mode="mindmap"></app-visualizer>
+                    </div>
+                  </as-split-area>
+
+                </as-split>
+              </div>
+            </div>
+          </as-split-area>
+   
+          <!-- RIGHT: AI PANEL -->
+          <as-split-area [size]="450" [minSize]="200" *ngIf="aiVisible">
+            <section class="pane">
+              <section class="pane">
+                <div class="pane-header">Instructions:</div>
+                <div class="whats-changed">
+                  <ol>
+                    <li>task: <i> Create a Trello Card </i></li>
+                    <li>email: <i> Create a Gmail Draft </i></li>
+                    <li>event: <i> Create a Google Calendar Event </i></li>
+                  </ol>
+                </div>
+                <div class="pane-header">AI Insights</div>
+                <app-ai-panel [diagram]="diagram"></app-ai-panel>
+              </section>
+            </section>
+          </as-split-area>
+   
+        </as-split>
+      </div>
     </main>
   `,
   styles: [`
@@ -189,6 +229,65 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       --btn-hover-bg: #e8e8ed;
     }
     
+    .nav-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0 12px;
+    }
+
+    .nav-tab {
+      background: var(--btn-bg, #1a1a1a);
+      color: var(--btn-text, #aaa);
+      border: 1px solid var(--btn-border, #333);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav-tab:hover {
+      background: var(--btn-hover-bg, #2a2a2a);
+      color: #fff;
+      border-color: #ff7700;
+    }
+
+    .nav-tab.active {
+      background: #ff7700;
+      color: #000;
+      border-color: #ff7700;
+      font-weight: 700;
+      box-shadow: 0 2px 10px rgba(255, 119, 0, 0.35);
+    }
+
+    .zone-view {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex: 1;
+    }
+
+    .legacy-studio-view {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .legacy-studio-toolbar {
+      padding: 4px 12px;
+      background: var(--pane-header-bg, #151515);
+      border-bottom: 1px solid var(--border-color, #222);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .header-emoji {
       font-size: 1.2rem;
       margin-left: 8px;
@@ -205,7 +304,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     }
 
-    .center-group { flex: 1; display: flex; justify-content: center; }
+    .center-group { flex: 0 0 auto; display: flex; justify-content: center; }
     
     .header-btn-toggle {
       background: var(--btn-bg, #222);
@@ -306,13 +405,6 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
       opacity: 0.6;
     }
 
-    /* Optional: Ensure the right-group alignment stays perfect */
-    .right-group {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
     .whats-changed {
       font-size: small;      
     }
@@ -370,27 +462,25 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
     /* Viz Layout Switcher */
     .viz-layout-header {
-      flex: 0 0 auto; /* Do not grow, do not shrink */
+      flex: 0 0 auto;
       background: var(--pane-header-bg);
       padding: 5px 10px !important;
       margin: 0 !important; 
       font-size: 10px !important;
-      /* display: block !important; */
       display: flex;
       align-items: center;
       gap: 8px;
       border-bottom: 1px solid var(--border-color);
-      height: 36px; /* Explicit height helps calculation */
+      height: 36px;
       box-sizing: border-box;
     }
 
     .viz-split-container {
-      flex: 1; /* Take all remaining vertical space */
-      position: relative; /* Context for absolute-positioned inner splits */
+      flex: 1;
+      position: relative;
       overflow: hidden;
     }
 
-    /* Force inner components to fill the flex container */
     as-split {
       height: 100% !important;
       width: 100% !important;
@@ -434,11 +524,15 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 })
 
 export class MainAppComponent implements OnInit {
+  store = inject(TaskstickStoreService);
+  migrationAdapter = inject(StorageMigrationAdapter);
+  activeZone = signal<'wall' | 'tasks' | 'dashboard' | 'legacy_studio'>('wall');
+
   diagram = '';
   dark = true;
   vizLayout: 'grid' | 'split' | 'ishikawa' | 'kanban' | 'mindmap' = 'grid';
   editorVisible = true;
-  aiVisible = false; // Change this to false
+  aiVisible = false;
   logoSvg: SafeHtml | null = null;
 
   constructor(
@@ -446,18 +540,12 @@ export class MainAppComponent implements OnInit {
     private http: HttpClient,
     private sanitizer: DomSanitizer,
     private cdr: ChangeDetectorRef,
-    private el: ElementRef,     // ✅ ADD THIS
-    private renderer: Renderer2 // ✅ ADD THIS
+    private el: ElementRef,
+    private renderer: Renderer2
   ) {
     this.initializeTheme();
     console.info('%c [DEBUG] AppComponent Initialized', 'background: #ff00ff; color: #000');
   }
-
-  // You must completely delete these three lines!
-  // ❌ DELETE THIS BLOCK:
-  // @HostBinding('class.light-mode') get isLightMode() {
-  //   return !this.dark;
-  // }
 
   private initializeTheme() {
     const savedTheme = localStorage.getItem('taskstick-theme');
@@ -478,16 +566,12 @@ export class MainAppComponent implements OnInit {
   }
 
   private updateRootTheme() {
-    // This now correctly uses Renderer2 to add/remove classes from the host element, 
-    // avoiding the ExpressionChangedAfterItHasBeenCheckedError.
     if (this.dark) {
       document.documentElement.classList.remove('light-mode');
       this.renderer.removeClass(this.el.nativeElement, 'light-mode');
-      console.info('%c [DEBUG] Remove Light Mode', 'background: #ff00ff; color: #000');
     } else {
       document.documentElement.classList.add('light-mode');
       this.renderer.addClass(this.el.nativeElement, 'light-mode');
-      console.info('%c [DEBUG] Add Light Mode', 'background: #ff00ff; color: #000');
     }
   }
 
@@ -519,9 +603,7 @@ export class MainAppComponent implements OnInit {
       this.dark = !this.dark;
       localStorage.setItem('taskstick-theme', this.dark ? 'dark' : 'light');
       this.updateRootTheme();
-
       this.cdr.detectChanges();
-
       console.info(`[DEBUG] Theme toggled to: ${this.dark ? 'Dark' : 'Light'}`);
     };
 
@@ -537,49 +619,97 @@ export class MainAppComponent implements OnInit {
   onDiagramChange(event: { lang?: string; content: string } | string) {
     this.diagram = typeof event === 'string' ? event : (event.content ?? '');
   }
+
   loadDate(dateKey: string) {
     this.diagram = this.storage.load(dateKey) || '';
+    this.store.switchDate(dateKey);
   }
 
   exportToDrive() {
-    if (!this.diagram.trim()) return;
-    const blob = new Blob([this.diagram], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `taskstick-export-${new Date().toISOString().slice(0, 10)}.mmd`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-    console.info('[DEBUG] Exported to HDD');
+    const currentNotes = this.store.notes();
+
+    if (currentNotes.length > 0) {
+      const snapshot = this.store.exportWallSnapshot();
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `taskstick-wall-${this.store.selectedDateKey()}.json`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      console.info('[DEBUG] Exported Full Ideation Wall Snapshot (JSON)');
+    } else if (this.diagram.trim()) {
+      const blob = new Blob([this.diagram], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `taskstick-export-${this.store.selectedDateKey()}.mmd`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      console.info('[DEBUG] Exported Markdown/Mermaid tasklist');
+    }
   }
 
   saveToDatabase() {
-    if (!this.diagram.trim()) return;
-    // For now, "Database" is our StorageService which uses localStorage
-    // but this represents an explicit sync/commit action.
-    this.storage.save(this.diagram);
-    alert('✅ Diagram successfully committed to Database.');
-    console.info('[DEBUG] Saved to Database');
+    const dateKey = this.store.selectedDateKey();
+    const currentNotes = this.store.notes();
+    if (currentNotes.length > 0) {
+      this.migrationAdapter.syncGraphToLegacyLocalStorage(dateKey, currentNotes);
+      alert(`✅ Mur d'Idées (${currentNotes.length} notes) sauvegardé avec succès pour le ${this.formatDate(dateKey)}.`);
+      console.info('[DEBUG] Saved Ideation Wall to Database');
+    } else if (this.diagram.trim()) {
+      this.storage.save(this.diagram);
+      this.store.refreshAvailableDates();
+      alert('✅ Diagramme sauvegardé dans la base.');
+      console.info('[DEBUG] Saved Diagram to Database');
+    }
+  }
+
+  private formatDate(key: string): string {
+    if (key && key.length === 8 && /^\d{8}$/.test(key)) {
+      return `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6)}`;
+    }
+    return key;
   }
 
   loadFromDrive() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.mmd,.txt';
+    input.accept = '.json,.mmd,.txt';
     input.onchange = (e: any) => {
       const file = e.target.files[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (readerEvent: any) => {
+      reader.onload = async (readerEvent: any) => {
         const content = readerEvent.target.result;
+
+        if (file.name.endsWith('.json') || (typeof content === 'string' && content.trim().startsWith('{'))) {
+          try {
+            const data = JSON.parse(content);
+            if (data.notes && Array.isArray(data.notes)) {
+              await this.store.restoreWallSnapshot(data);
+              alert(`✅ Mur d'idées restauré avec succès (${data.notes.length} notes, ${data.edges?.length ?? 0} liens, ${data.zones?.length ?? 0} régions) !`);
+              console.info('[DEBUG] Restored Full Wall from JSON snapshot');
+              return;
+            }
+          } catch (err) {
+            console.warn('[Load] Could not parse file as JSON snapshot, falling back to text:', err);
+          }
+        }
+
         this.diagram = content;
-        this.storage.save(content);
-        console.info('[DEBUG] Loaded from "Drive" (Local Upload)');
+        const dateKey = this.store.selectedDateKey();
+        this.storage.save(content, dateKey);
+
+        const parsedNotes = this.migrationAdapter.parseMmdToNotes(content, dateKey);
+        if (parsedNotes.length > 0) {
+          await this.store.loadParsedNotes(parsedNotes);
+          alert(`✅ Liste de tâches importée (${parsedNotes.length} notes).`);
+        }
+        console.info('[DEBUG] Loaded from text/mmd file');
       };
       reader.readAsText(file);
-      console.info('[DEBUG] Loaded from "Drive" (Local Upload) - FileReader initiated');
     };
     input.click();
-    console.info('[DEBUG] Clicked - File Input Triggered');
   }
 }

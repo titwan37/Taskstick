@@ -1,0 +1,349 @@
+[
+  {
+    "task_id": "TASKSTICK-TRANS-001",
+    "title": "Core Domain Models & TypeScript Schema Definition",
+    "description": "Create 'src/app/models/taskstick-graph.model.ts' and 'src/app/models/postit.model.ts'. Export strict TypeScript types and interfaces: 'PostItColor' ('yellow' | 'pink' | 'blue' | 'green' | 'purple' | 'orange'), 'PostItStatus' ('open' | 'done_cross' | 'done_check'), 'RelationType' ('depends_on' | 'constrains' | 'synergy' | 'parent_of'), 'CognitiveLoad' ('low' | 'medium' | 'high'), 'Coordinates2D' (x: number, y: number), 'NoteCluster' (id: string, noteIds: string[], relativeOffsets: Record<string, Coordinates2D>), 'WhiteboardZone' (id: string, label: string, colorCode: string, bounds: {x: number, y: number, width: number, height: number}), 'PostItEdge' (id: string, sourceId: string, targetId: string, type: RelationType, label?: Partial<MultiLanguageContent>), and 'ADHDPostItNote' extending basic note properties with 'translations: Partial<MultiLanguageContent>', 'cognitiveLoad: CognitiveLoad', 'estimatedMinutes: number', 'isBlocked: boolean', 'scheduledSlot?: { dayOfWeek: 1|2|3|4|5|6|7, startHour: number, durationMinutes: number }', 'zIndex: number', 'clusterId?: string', and 'zoneId?: string'. Preserve and import 'MultiLanguageContent' and 'SupportedLanguage' from 'src/app/editor/editor.component.ts'.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/models/taskstick-graph.model.ts",
+      "src/app/models/postit.model.ts"
+    ],
+    "context_paths": [
+      "src/app/editor/editor.component.ts"
+    ],
+    "verification_command": "npx ts-node -e \"import { ADHDPostItNote, PostItEdge, PostItStatus } from './src/app/models/taskstick-graph.model'; const n: Partial<ADHDPostItNote> = { id: 'test-1', color: 'yellow', status: 'open', isBlocked: false }; console.log('TASKSTICK-TRANS-001 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:03:32.342916",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-001",
+    "test_command": "npx ts-node -e \"import { ADHDPostItNote, PostItEdge, PostItStatus } from './src/app/models/taskstick-graph.model'; const n: Partial<ADHDPostItNote> = { id: 'test-1', color: 'yellow', status: 'open', isBlocked: false }; console.log('TASKSTICK-TRANS-001 passed');\"",
+    "context_files": [
+      "src/app/editor/editor.component.ts"
+    ],
+    "dependencies": []
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-002",
+    "title": "Dexie IndexedDB Store & Non-Breaking LocalStorage Migration Adapter",
+    "description": "Implement 'src/app/services/taskstick-db.service.ts' using Dexie.js with tables: 'notes' ('id, color, status, clusterId, zoneId, updatedAt'), 'edges' ('id, sourceId, targetId, type'), 'zones' ('id, label'), 'clusters' ('id'), and 'journals' ('dateKey, rawMmd, syncedAt'). Implement 'src/app/services/storage-migration.adapter.ts' providing bidirectional migration: (1) 'migrateLegacyLocalStorage()' scanning all 'journal-YYYYMMDD' keys from 'StorageService.listDates()', parsing text tasks into 'ADHDPostItNote' records with default coordinates and cluster associations without deleting or overwriting the original localStorage entries; (2) 'syncGraphToLegacyLocalStorage(dateKey: string, notes: ADHDPostItNote[])' generating Mermaid-compatible text and committing to 'localStorage.setItem(`journal-${dateKey}`, mmd)' to guarantee 100% backward compatibility with 'StorageService'. Inject 'StorageMigrationAdapter' into 'StorageService' without changing existing public method signatures.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/services/taskstick-db.service.ts",
+      "src/app/services/storage-migration.adapter.ts",
+      "src/app/services/storage.service.ts"
+    ],
+    "context_paths": [
+      "src/app/services/storage.service.ts",
+      "src/app/models/taskstick-graph.model.ts"
+    ],
+    "verification_command": "npx ts-node -e \"import { StorageService } from './src/app/services/storage.service'; import { StorageMigrationAdapter } from './src/app/services/storage-migration.adapter'; console.log('TASKSTICK-TRANS-002 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-001"
+    ],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:04:18.684316",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-002",
+    "test_command": "npx ts-node -e \"import { StorageService } from './src/app/services/storage.service'; import { StorageMigrationAdapter } from './src/app/services/storage-migration.adapter'; console.log('TASKSTICK-TRANS-002 passed');\"",
+    "context_files": [
+      "src/app/services/storage.service.ts",
+      "src/app/models/taskstick-graph.model.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-001"
+    ]
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-003",
+    "title": "Unified Reactive Graph Store & DAG Dependency Engine",
+    "description": "Implement 'src/app/services/taskstick-store.service.ts' using Angular 21 Signals: state signals for 'notes', 'edges', 'clusters', 'zones', 'activeFilter', and 'selectedDateKey'. Provide computed signals: 'rootActionableNotes' (notes with status 'open' whose dependencies are all satisfied), 'blockedNotes' (notes having at least one incoming 'depends_on' edge where the source note has status 'open'), and 'graphStats' (total, open, done_cross, done_check, completionPercentage). Implement deterministic DAG cycle detector 'detectCycle(newEdge: PostItEdge): boolean' preventing cyclic dependencies. Implement method 'evaluateSticking(movedNoteId: string, snapRadius = 30): void' calculating distance with other notes, auto-binding them to a 'NoteCluster' and magnetizing their borders with offset (+180px, 0). Implement 'toggleNoteStatus(noteId: string)' cycling 'open' -> 'done_cross' -> 'done_check' -> 'open' and recalculating 'isBlocked' flags.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "context_paths": [
+      "src/app/models/taskstick-graph.model.ts",
+      "src/app/services/taskstick-db.service.ts"
+    ],
+    "verification_command": "npx ts-node -e \"import { TaskstickStoreService } from './src/app/services/taskstick-store.service'; console.log('TASKSTICK-TRANS-003 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-001",
+      "TASKSTICK-TRANS-002"
+    ],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:04:39.885096",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-003",
+    "test_command": "npx ts-node -e \"import { TaskstickStoreService } from './src/app/services/taskstick-store.service'; console.log('TASKSTICK-TRANS-003 passed');\"",
+    "context_files": [
+      "src/app/models/taskstick-graph.model.ts",
+      "src/app/services/taskstick-db.service.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-001",
+      "TASKSTICK-TRANS-002"
+    ]
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-004",
+    "title": "Top Navigation Bar & Multi-Zone Viewport Routing in Main App",
+    "description": "Refactor 'src/app/main-app.component.ts' to integrate the Top Navigation Bar without breaking existing Monaco/Mermaid functionality: (1) Add state signal 'activeZone' ('wall' | 'tasks' | 'dashboard' | 'legacy_studio') defaulting to 'wall'; (2) In header navigation, add tab buttons for '1. Mur à Idées', '2. Tâches & Agenda', '3. Dashboard & Focus', and '4. Studio Mermaid (Expert)'; (3) Encapsulate the current split layout (Monaco editor + visualizers + AI panel) inside an '<ng-container *ngIf=\"activeZone() === \\'legacy_studio\\'\">' or retractable drawer; (4) Provide viewport router containers for '<app-ideation-wall *ngIf=\"activeZone() === \\'wall\\'\" [dark]=\"dark\">', '<app-task-manager *ngIf=\"activeZone() === \\'tasks\\'\" [dark]=\"dark\">', and '<app-dashboard *ngIf=\"activeZone() === \\'dashboard\\'\" [dark]=\"dark\">'; (5) Keep theme toggle, date selector, export, and load buttons fully operational across all views.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/main-app.component.ts"
+    ],
+    "context_paths": [
+      "src/app/main-app.component.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "verification_command": "node -e \"const fs = require('fs'); const app = fs.readFileSync('src/app/main-app.component.ts', 'utf8'); assert(app.includes('activeZone')); assert(app.includes('IdeationWall') || app.includes('app-ideation-wall')); assert(app.includes('legacy_studio') || app.includes('Studio Mermaid')); console.log('TASKSTICK-TRANS-004 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-003"
+    ],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:04:54.353078",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-004",
+    "test_command": "node -e \"const fs = require('fs'); const app = fs.readFileSync('src/app/main-app.component.ts', 'utf8'); assert(app.includes('activeZone')); assert(app.includes('IdeationWall') || app.includes('app-ideation-wall')); assert(app.includes('legacy_studio') || app.includes('Studio Mermaid')); console.log('TASKSTICK-TRANS-004 passed');\"",
+    "context_files": [
+      "src/app/main-app.component.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-003"
+    ]
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-005",
+    "title": "Magnetic Ideation Wall Component & Tactile Post-it Physics",
+    "description": "Implement 'src/app/ideation-wall/ideation-wall.component.ts' and 'src/app/ideation-wall/post-it-node.component.ts': (1) Set up full-screen infinite canvas with 'panzoom', subtle magnetic dot-grid background (20px pitch), and double-click / quick-capture bar spawning new Post-it notes; (2) Implement HTML5 / CDK DragDrop movement with live boundary collision and sticky magnet snap via 'TaskstickStoreService.evaluateSticking()'; (3) Implement group drag moving all notes sharing a 'clusterId' simultaneously; (4) Render Post-it card using pastel styling matching 'mindmap-styling.ts', status badge toggling ⭕ ('open') / ❌ ('done_cross') / ✓ ('done_check'), color selector picker, tag chips, and unpin/unstick action button; (5) Implement quick auto-grouping actions toolbar on top: 'Group by Color', 'Group by Zone', and 'Group by Tag'.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/ideation-wall/ideation-wall.component.ts",
+      "src/app/ideation-wall/post-it-node.component.ts"
+    ],
+    "context_paths": [
+      "src/app/visualizer/mindmap-styling.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "verification_command": "node -e \"const fs = require('fs'); assert(fs.existsSync('src/app/ideation-wall/ideation-wall.component.ts')); assert(fs.existsSync('src/app/ideation-wall/post-it-node.component.ts')); console.log('TASKSTICK-TRANS-005 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 3,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-003",
+      "TASKSTICK-TRANS-004"
+    ],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:05:22.903652",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-005",
+    "test_command": "node -e \"const fs = require('fs'); assert(fs.existsSync('src/app/ideation-wall/ideation-wall.component.ts')); assert(fs.existsSync('src/app/ideation-wall/post-it-node.component.ts')); console.log('TASKSTICK-TRANS-005 passed');\"",
+    "context_files": [
+      "src/app/visualizer/mindmap-styling.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-003",
+      "TASKSTICK-TRANS-004"
+    ]
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-006",
+    "title": "SVG Connection Overlay Layer & Bidirectional Mermaid Synchronizer",
+    "description": "Implement 'src/app/ideation-wall/svg-connection-layer.component.ts' and 'src/app/services/graph-mermaid-serializer.service.ts': (1) In SVG layer, render cubic Bézier curves between Post-it connector anchor ports (source right to target left) with visual differentiation: solid red/coral line with arrowhead for 'depends_on', dashed amber line for 'constrains', and dotted cyan line for 'synergy'; render lock icon overlay on blocked target nodes; (2) Enable interactive link drawing: dragging from a note connector handle and dropping onto another note creates a 'PostItEdge' after passing 'TaskstickStoreService.detectCycle()'; (3) In 'GraphMermaidSerializerService', generate valid Mermaid syntax for 'mindmap', 'kanban', and 'ishikawa-beta' from current 'notes' and 'edges' to ensure seamless live sync back to 'EditorComponent' and 'VisualizerComponent'.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/ideation-wall/svg-connection-layer.component.ts",
+      "src/app/services/graph-mermaid-serializer.service.ts"
+    ],
+    "context_paths": [
+      "src/app/visualizer/visualizer.component.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "verification_command": "node -e \"const fs = require('fs'); assert(fs.existsSync('src/app/ideation-wall/svg-connection-layer.component.ts')); assert(fs.existsSync('src/app/services/graph-mermaid-serializer.service.ts')); console.log('TASKSTICK-TRANS-006 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-005"
+    ],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:06:07.580863",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-006",
+    "test_command": "node -e \"const fs = require('fs'); assert(fs.existsSync('src/app/ideation-wall/svg-connection-layer.component.ts')); assert(fs.existsSync('src/app/services/graph-mermaid-serializer.service.ts')); console.log('TASKSTICK-TRANS-006 passed');\"",
+    "context_files": [
+      "src/app/visualizer/visualizer.component.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-005"
+    ]
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-007",
+    "title": "ADHD Focus Mode, Weekly Energy Planner & Executive Dashboard",
+    "description": "Implement 'src/app/task-manager/weekly-planner.component.ts' and 'src/app/dashboard/dashboard.component.ts': (1) In 'WeeklyPlannerComponent', display a split interface: left pane shows unblocked actionable tasks sorted by topological priority; right pane displays a 7-day calendar grid (Mon-Sun) allowing drag-and-drop time-boxing with cognitive load badges (⚡ High Focus, 🔋 Medium, 🪶 Low/Admin) and automated 15-minute buffer spacing; (2) In 'DashboardComponent', display dopamine progress counters (completed tasks, current momentum streak, open vs done counts by color); (3) Implement 'Hyperfocus Spotlight Mode' overlay: dimming the entire screen to 90% opacity, isolating the single active task, displaying a visual countdown circle (Time-Timer inspired, selectable 15/25/45 min), and providing a 'Park Distraction' quick-dump input saving secondary thoughts directly to the backlog without breaking focus.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/task-manager/weekly-planner.component.ts",
+      "src/app/dashboard/dashboard.component.ts",
+      "src/app/dashboard/focus-spotlight.component.ts"
+    ],
+    "context_paths": [
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "verification_command": "node -e \"const fs = require('fs'); assert(fs.existsSync('src/app/task-manager/weekly-planner.component.ts')); assert(fs.existsSync('src/app/dashboard/dashboard.component.ts')); console.log('TASKSTICK-TRANS-007 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-003",
+      "TASKSTICK-TRANS-004"
+    ],
+    "status": "completed",
+    "attempts": 1,
+    "last_worker": "PC2-Nitro+PC1-Local",
+    "last_error": null,
+    "completed_at": "2026-10-26T12:06:35.425056",
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-007",
+    "test_command": "node -e \"const fs = require('fs'); assert(fs.existsSync('src/app/task-manager/weekly-planner.component.ts')); assert(fs.existsSync('src/app/dashboard/dashboard.component.ts')); console.log('TASKSTICK-TRANS-007 passed');\"",
+    "context_files": [
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-003",
+      "TASKSTICK-TRANS-004"
+    ]
+  },
+  {
+    "task_id": "TASKSTICK-TRANS-008",
+    "title": "AI Task Decomposer, Web Worker Translation & Speech Capture",
+    "description": "Enhance 'src/app/services/ai-agent.service.ts' and implement dedicated Web Worker 'src/app/workers/translation.worker.ts': (1) Move '@xenova/transformers' execution off the main UI thread into 'translation.worker.ts', exposing multi-language translation (FR <-> EN <-> DE) callable by both Monaco 'EditorComponent' and graph Post-it notes; (2) In 'AiAgentService', add 'decomposeTask(note: ADHDPostItNote): Promise<string[]>' breaking an overwhelming task into 3-4 sub-steps of <= 20 min, automatically clustering them below the parent note; (3) Add 'inferDependencies(notes: ADHDPostItNote[]): Promise<PostItEdge[]>' suggesting prerequisite relationships; (4) Implement 'SpeechRecognitionService' wrapping browser Web Speech API to provide hands-free voice dictation creating Post-it notes directly on the magnetic whiteboard.",
+    "task_type": "code_implementation",
+    "required_capabilities": [
+      "remote_reasoning",
+      "local_write",
+      "local_test"
+    ],
+    "preferred_executor": "remote_brain_then_local_executor",
+    "allowed_paths": [
+      "src/app/services/ai-agent.service.ts",
+      "src/app/workers/translation.worker.ts",
+      "src/app/services/speech-recognition.service.ts"
+    ],
+    "context_paths": [
+      "src/app/services/ai-agent.service.ts",
+      "src/app/editor/editor.component.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "verification_command": "node -e \"const fs = require('fs'); const s = fs.readFileSync('src/app/services/ai-agent.service.ts', 'utf8'); assert(s.includes('decomposeTask') || s.includes('inferDependencies')); console.log('TASKSTICK-TRANS-008 passed');\"",
+    "output_artifact_schema": "PatchSpec",
+    "max_attempts": 2,
+    "failure_policy": "classify_before_retry",
+    "dependency_ids": [
+      "TASKSTICK-TRANS-006",
+      "TASKSTICK-TRANS-007"
+    ],
+    "status": "running",
+    "attempts": 0,
+    "last_worker": null,
+    "last_error": null,
+    "completed_at": null,
+    "handoff_warning": null,
+    "failure_history": [],
+    "id": "TASKSTICK-TRANS-008",
+    "test_command": "node -e \"const fs = require('fs'); const s = fs.readFileSync('src/app/services/ai-agent.service.ts', 'utf8'); assert(s.includes('decomposeTask') || s.includes('inferDependencies')); console.log('TASKSTICK-TRANS-008 passed');\"",
+    "context_files": [
+      "src/app/services/ai-agent.service.ts",
+      "src/app/editor/editor.component.ts",
+      "src/app/services/taskstick-store.service.ts"
+    ],
+    "dependencies": [
+      "TASKSTICK-TRANS-006",
+      "TASKSTICK-TRANS-007"
+    ]
+  }
+]

@@ -1,5 +1,6 @@
 // src/app/storage.service.ts
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { StorageMigrationAdapter } from './storage-migration.adapter';
 
 export interface JournalEntry {
     dateKey: string;   // yyyyMMdd
@@ -8,6 +9,15 @@ export interface JournalEntry {
 
 @Injectable({ providedIn: 'root' })
 export class StorageService {
+    private migrationAdapter = inject(StorageMigrationAdapter);
+
+    constructor() {
+        // Asynchronously backup and migrate legacy local storage entries without blocking UI
+        this.migrationAdapter.migrateLegacyLocalStorage().catch(err => {
+            console.warn('[StorageService] Migration notice:', err);
+        });
+    }
+
     /** Today’s key in yyyyMMdd format */
     private todayKey(): string {
         const d = new Date();
@@ -35,3 +45,4 @@ export class StorageService {
             .reverse();
     }
 }
+

@@ -123,9 +123,16 @@ export class VisualizerComponent implements AfterViewInit, OnChanges, OnDestroy 
             return;
         }
 
-        const full = this.mode === 'kanban'
-            ? this.getKanbanDiagram()
-            : `${this.getHeader()}\n${this.getIndentedContent()}`;
+        let full: string;
+        if (this.mode === 'kanban') {
+            full = this.getKanbanDiagram();
+        } else if (this.mode === 'mindmap') {
+            full = this.getMindmapDiagram();
+        } else if (this.mode === 'ishikawa') {
+            full = this.getIshikawaDiagram();
+        } else {
+            full = `${this.getHeader()}\n${this.getIndentedContent()}`;
+        }
 
         try {
             const id = `dsvg-${this.mode}-${Math.floor(Math.random() * 1000000)}`;
@@ -451,12 +458,174 @@ export class VisualizerComponent implements AfterViewInit, OnChanges, OnDestroy 
         return out;
     }
 
+    private sanitizeMindmapText(str: string): string {
+        return str
+            .replace(/["\n\r\[\]\(\)\{\}`]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    private getMindmapDiagram(): string {
+        const lines = (this.diagram || '').split('\n');
+        const out: string[] = ['mindmap', '  root((Work Log))'];
+
+        // Group tasks by category/color
+        const categories: { [key: string]: string[] } = {
+            'Todo (À faire)': [],
+            'Done (Terminé)': [],
+            'Events & Emails': [],
+            'Other': []
+        };
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('%%')) continue;
+
+            const isEventOrEmail = /^(event:|email:)/i.test(line);
+            const isTask = /^task:/i.test(line);
+
+            // Strip prefix
+            let content = line.replace(/^(task:|event:|email:)\s*/i, '').trim();
+
+            // Check status marker
+            let statusIcon = '⭕';
+            if (content.startsWith('[x]') || content.startsWith('[X]')) {
+                statusIcon = '❌';
+                content = content.replace(/^\[[xX]\]\s*/, '');
+            } else if (content.startsWith('[✓]') || content.startsWith('[v]') || content.startsWith('[V]')) {
+                statusIcon = '✓';
+                content = content.replace(/^\[[✓vV]\]\s*/, '');
+            } else if (content.startsWith('[ ]')) {
+                statusIcon = '⭕';
+                content = content.replace(/^\[ \]\s*/, '');
+            }
+
+            // Strip optional color tag like (yellow), (blue), etc.
+            content = content.replace(/^\([a-zA-Z0-9_-]+\)\s*/, '');
+
+            const cleanText = this.sanitizeMindmapText(content);
+            if (!cleanText) continue;
+
+            const itemLabel = `["${statusIcon} ${cleanText}"]`;
+
+            if (isEventOrEmail) {
+                categories['Events & Emails'].push(itemLabel);
+            } else if (statusIcon === '✓' || statusIcon === '❌') {
+                categories['Done (Terminé)'].push(itemLabel);
+            } else if (isTask || statusIcon === '⭕') {
+                categories['Todo (À faire)'].push(itemLabel);
+            } else {
+                categories['Other'].push(itemLabel);
+            }
+        }
+
+        // Output tree
+        for (const [catName, items] of Object.entries(categories)) {
+            if (items.length > 0) {
+                out.push(`    ["${catName}"]`);
+                for (const item of items) {
+                    out.push(`      ${item}`);
+                }
+            }
+        }
+
+        if (out.length === 2) {
+            out.push('    ["(Aucune tâche active)"]');
+        }
+
+        return out.join('\n');
+    }
+
+    private getIshikawaDiagram(): string {
+        const lines = (this.diagram || '').split('\n');
+        const out: string[] = [
+            'graph LR',
+            '  Problem["🎯 Projet & Objectifs"]'
+        ];
+
+        const branches: { [key: string]: string[] } = {
+            'A_Faire': [],
+            'Termine': [],
+            'Communication': [],
+            'Divers': []
+        };
+
+        let count = 0;
+        for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('%%')) continue;
+
+            const isEventOrEmail = /^(event:|email:)/i.test(line);
+            let content = line.replace(/^(task:|event:|email:)\s*/i, '').trim();
+
+            let statusIcon = '⭕';
+            if (content.startsWith('[x]') || content.startsWith('[X]')) {
+                statusIcon = '❌';
+                content = content.replace(/^\[[xX]\]\s*/, '');
+            } else if (content.startsWith('[✓]') || content.startsWith('[v]') || content.startsWith('[V]')) {
+                statusIcon = '✓';
+                content = content.replace(/^\[[✓vV]\]\s*/, '');
+            } else if (content.startsWith('[ ]')) {
+                statusIcon = '⭕';
+                content = content.replace(/^\[ \]\s*/, '');
+            }
+
+            content = content.replace(/^\([a-zA-Z0-9_-]+\)\s*/, '');
+            const cleanText = this.sanitizeMindmapText(content);
+            if (!cleanText) continue;
+
+            count++;
+            const nodeKey = `Node_${count}`;
+            const label = `${nodeKey}["${statusIcon} ${cleanText}"]`;
+
+            if (isEventOrEmail) {
+                branches['Communication'].push(label);
+            } else if (statusIcon === '✓' || statusIcon === '❌') {
+                branches['Termine'].push(label);
+            } else {
+                branches['A_Faire'].push(label);
+            }
+        }
+
+        // Build bone links
+        const branchConfig: { key: string; label: string; id: string }[] = [
+            { key: 'A_Faire', label: '📋 À Faire', id: 'Bone_Todo' },
+            { key: 'Termine', label: '✅ Terminé', id: 'Bone_Done' },
+            { key: 'Communication', label: '📬 Événements & Messages', id: 'Bone_Comm' },
+            { key: 'Divers', label: '📌 Divers', id: 'Bone_Misc' }
+        ];
+
+        for (const b of branchConfig) {
+            const items = branches[b.key] || [];
+            if (items.length > 0) {
+                out.push(`  ${b.id}["${b.label}"] --> Problem`);
+                for (const item of items) {
+                    const idOnly = item.split('[')[0].trim();
+                    out.push(`  ${item} --> ${b.id}`);
+                }
+            }
+        }
+
+        if (count === 0) {
+            out.push('  Empty["(Aucune tâche)"] --> Problem');
+        }
+
+        return out.join('\n');
+    }
+
     resetZoom() { this.pz?.moveTo(0, 0); this.pz?.zoomAbs(0, 0, 1); }
 
     exportMMD() {
-        const full = this.mode === 'kanban'
-            ? this.getKanbanDiagram()
-            : `${this.getHeader()}\n${this.getIndentedContent()}`;
+        let full: string;
+        if (this.mode === 'kanban') {
+            full = this.getKanbanDiagram();
+        } else if (this.mode === 'mindmap') {
+            full = this.getMindmapDiagram();
+        } else if (this.mode === 'ishikawa') {
+            full = this.getIshikawaDiagram();
+        } else {
+            full = `${this.getHeader()}\n${this.getIndentedContent()}`;
+        }
         this.downloadFile(full, `taskstick-${this.mode}.mmd`, 'text/plain');
     }
 

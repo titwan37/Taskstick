@@ -1,13 +1,13 @@
-// src/app/editor/editor.component.ts
-import { Component, ChangeDetectionStrategy, Output, EventEmitter, OnInit, Input, OnChanges, SimpleChanges, ChangeDetectorRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, Output, EventEmitter, OnInit, Input, OnChanges, SimpleChanges, ChangeDetectorRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MonacoEditorModule } from 'ngx-monaco-editor-v2';
 import { StorageService } from '../services/storage.service';
+import { AiAgentService } from '../services/ai-agent.service';
 
 /** 1. State Data Model (TypeScript Interfaces) */
 export type SupportedLanguage = 'fr' | 'en' | 'de';
-export type TranslationEngine = 'transformers' | 'native';
+export type TranslationEngine = 'transformers' | 'native' | 'ollama';
 
 export interface MultiLanguageContent {
   fr: string;
@@ -64,6 +64,14 @@ export interface MultiLangEditorState {
             <button
               type="button"
               class="btn-engine"
+              [class.active]="state.translationEngine === 'ollama'"
+              (click)="setEngine('ollama')"
+              title="Ollama Localhost LLM Engine (qwen3:1.7b)">
+              🦙 Ollama ({{ aiAgent.getSelectedModel() }})
+            </button>
+            <button
+              type="button"
+              class="btn-engine"
               [class.active]="state.translationEngine === 'transformers'"
               (click)="setEngine('transformers')"
               title="Hugging Face @xenova/transformers (ONNX In-Browser Model)">
@@ -85,10 +93,10 @@ export interface MultiLangEditorState {
             class="btn-action btn-translate"
             [disabled]="state.isTranslating"
             (click)="triggerTranslation()"
-            [title]="state.translationEngine === 'transformers' ? 'Translate using Hugging Face In-Browser Neural Network' : 'Translate using Browser Native API'">
+            [title]="state.translationEngine === 'ollama' ? 'Translate using local Ollama model' : state.translationEngine === 'transformers' ? 'Translate using Hugging Face In-Browser Neural Network' : 'Translate using Browser Native API'">
             <span class="icon">{{ state.isTranslating ? '⏳' : '🤖' }}</span>
             {{ state.isTranslating ? (state.modelLoadingProgress !== null ? ('Downloading ' + state.modelLoadingProgress + '%') : 'Translating...') : 'AI Translate' }}
-            <span class="badge-engine">{{ state.translationEngine === 'transformers' ? 'ONNX HF' : 'NATIVE' }}</span>
+            <span class="badge-engine">{{ state.translationEngine === 'ollama' ? 'OLLAMA' : state.translationEngine === 'transformers' ? 'ONNX HF' : 'NATIVE' }}</span>
           </button>
 
           <button type="button" class="btn-action" (click)="triggerDisplay()">
@@ -111,6 +119,9 @@ export interface MultiLangEditorState {
       </div>
 
       <!-- Engine Info Banner -->
+      <div *ngIf="state.translationEngine === 'ollama'" class="editor-banner info-banner">
+        🦙 <strong>Ollama Localhost Active ({{ aiAgent.getSelectedModel() }}):</strong> Grounded LLM translation running on <code>{{ aiAgent.getEndpoint() }}</code> with fallback to Transformers.js.
+      </div>
       <div *ngIf="state.translationEngine === 'transformers'" class="editor-banner info-banner">
         🤗 <strong>Hugging Face Transformers.js Active:</strong> Powered by Meta opus-mt ONNX models running directly in WebAssembly/WebGPU on your machine.
       </div>
@@ -362,6 +373,8 @@ export class EditorComponent implements OnInit, OnChanges {
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace"
   };
 
+  public aiAgent = inject(AiAgentService);
+
   constructor(private storage: StorageService, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
@@ -542,7 +555,8 @@ export class EditorComponent implements OnInit, OnChanges {
       this.state.modelLoadingProgress = 0;
       this.cdr.markForCheck();
 
-      const transformersApi = await (eval(`import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2')`) as Promise<any>);
+      const dynamicImport = new Function('url', 'return import(url);');
+      const transformersApi = await (dynamicImport('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2') as Promise<any>);
       const pipeline = transformersApi.pipeline;
       const env = transformersApi.env;
 
@@ -583,15 +597,39 @@ export class EditorComponent implements OnInit, OnChanges {
     targetLang: SupportedLanguage,
     text: string
   ): Promise<string | null> {
-    if (this.state.translationEngine === 'transformers') {
-      const translator = await this.getTransformersPipeline(sourceLang, targetLang);
-      return await this.translatePreservingStructure(text, async (chunks: string[]) => {
-        const output = await translator(chunks);
-        if (Array.isArray(output)) {
-          return output.map((item: any) => item?.translation_text || '');
+    if (this.state.translationEngine === 'ollama') {
+      try {
+        const langNames = { fr: 'French', en: 'English', de: 'German' };
+        const prompt = `Translate the following text accurately from ${langNames[sourceLang]} to ${langNames[targetLang]}.
+Preserve all Markdown formatting, Mermaid diagram syntax, and bullet points.
+Return ONLY the translation without any introduction or explanatory text:
+
+${text}`;
+        const llmResult = await this.aiAgent.generateCompletion(prompt);
+        if (llmResult && llmResult.trim().length > 0) {
+          return llmResult.trim();
         }
-        return [output?.translation_text || ''];
-      });
+        console.warn('[Editor] Ollama returned empty, falling back to Transformers.js');
+      } catch (ollamaErr) {
+        console.warn('[Editor] Ollama translation error, falling back:', ollamaErr);
+      }
+    }
+
+    if (this.state.translationEngine === 'transformers' || this.state.translationEngine === 'ollama') {
+      try {
+        const workerResult = await this.aiAgent.translateWithWorker(text, sourceLang, targetLang);
+        return workerResult;
+      } catch (workerErr) {
+        console.warn('Web Worker translation fallback to inline pipeline:', workerErr);
+        const translator = await this.getTransformersPipeline(sourceLang, targetLang);
+        return await this.translatePreservingStructure(text, async (chunks: string[]) => {
+          const output = await translator(chunks);
+          if (Array.isArray(output)) {
+            return output.map((item: any) => item?.translation_text || '');
+          }
+          return [output?.translation_text || ''];
+        });
+      }
     } else {
       const globalObj = typeof self !== 'undefined' ? (self as any) : (window as any);
       const translationApi = globalObj.translation || globalObj.ai?.translator;
